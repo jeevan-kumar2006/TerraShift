@@ -13,6 +13,7 @@ import {
   WifiOff,
 } from "lucide-react";
 import SplitMap from "./SplitMap";
+import TrendLab from "./TrendLab";
 import type {
   GeoPoint,
   InvestigateResponse,
@@ -253,6 +254,15 @@ export default function App() {
     setPointA(nextA);
     setPointB(nextB);
     runInvestigation({ nextCaseId: null, nextA, nextB });
+  };
+
+  const handleChangeWindow = (nextWindow: [number, number]) => {
+    setWindowRange(nextWindow);
+    if (!pointA) return;
+    if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    debounceRef.current = window.setTimeout(() => {
+      runInvestigation({ nextWindow });
+    }, 220);
   };
 
   const activeMeta = parameters[parameter] ?? result?.response.metadata;
@@ -500,11 +510,33 @@ export default function App() {
           fitVersion={fitVersion}
         />
 
-        {/* Sprint 3 placeholder preview before Sprint 4 TrendLab replaces it */}
+        {/* Sprint 4: Decomposition Lab & Detective Verdict Scorecard */}
+        {result && pointA && (
+          <TrendLab
+            investigation={result}
+            pointA={pointA}
+            pointB={pointB}
+            windowRange={windowRange}
+            onChangeWindow={handleChangeWindow}
+            loading={loading}
+          />
+        )}
+
+        {/* Detective Brief Summary Strip */}
         {result && (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-xs text-slate-300">
-            <p className="font-semibold text-white">{result.response.detective_brief.verdict_headline}</p>
-            <p className="mt-1 text-slate-400">{result.response.detective_brief.physical_mechanism}</p>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-xs text-slate-300">
+            <div className="max-w-4xl">
+              <p className="font-semibold text-cyan-200">{result.response.detective_brief.verdict_headline}</p>
+              <p className="mt-0.5 text-slate-400">{result.response.detective_brief.physical_mechanism}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDossierOpen(true)}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3.5 py-2 text-xs font-semibold text-cyan-200 transition hover:bg-cyan-500/20"
+            >
+              <FileText className="h-3.5 w-3.5" />
+              Open Full Field Dossier
+            </button>
           </div>
         )}
 
