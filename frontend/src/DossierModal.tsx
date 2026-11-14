@@ -353,8 +353,17 @@ export default function DossierModal({
               <p className="mt-0.5 text-slate-700">{brief.horizon_note}</p>
             </div>
             <div className="border-t border-slate-200 pt-2 text-[11px] text-slate-600">
-              <strong>NASA Data &amp; Literature Reference:</strong> {brief.reference} ·{" "}
-              <em>{metadata.plain_definition}</em>
+              <p>
+                <strong>Primary Literature &amp; Mission Reference:</strong> {brief.reference} ·{" "}
+                <em>{metadata.plain_definition}</em>
+              </p>
+              <p className="mt-1 text-[10px] text-slate-500">
+                <strong>Multi-Agency &amp; Statistical Methodology Sources:</strong> NASA Giovanni · GES DISC
+                Hydrology Time Series · NASA AppEEARS · NOAA NCEI CDO · NASA NTRS 20090042747 (SeaWiFS Coastal
+                Time-Series) · KNMI Climate Explorer · CSA RADARSAT Constellation Mission (RCM) · Geo.ca ·
+                NASA/CNES/CSA SWOT Mission · CSA SAR Python Tutorial · Mann-Kendall &amp; Sen&apos;s Slope
+                Significance Guides (&alpha; = 0.05).
+              </p>
             </div>
           </div>
         </div>

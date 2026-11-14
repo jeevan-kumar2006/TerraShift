@@ -8,23 +8,26 @@ import os
 from typing import Any, Literal
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from nasa_service import (
     PARAMETER_METADATA,
+    compute_bounding_box,
     fetch_nasa_monthly,
+    fetch_partner_intel,
     get_parameter_metadata,
     get_preset_case_series,
     list_preset_cases,
+    parse_external_timeseries,
 )
 from stats_engine import analyze_series
 
 app = FastAPI(
     title="TerraShift API",
-    description="Earth System Trend Detective — STL decomposition, Mann-Kendall, Sen's slope, and NASA POWER integration.",
-    version="1.0.0",
+    description="Earth System Trend Detective — STL decomposition, Mann-Kendall, Sen's slope, and Multi-Agency NASA / NOAA / KNMI / CSA integration.",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -67,6 +70,16 @@ class InvestigateRequest(BaseModel):
     comparison_point: GeoPoint | None = Field(default=None)
     start_year: int = Field(default=1990, ge=1981, le=2025)
     end_year: int = Field(default=2025, ge=1981, le=2025)
+    mk_variant: Literal["standard", "hamed_rao"] = Field(default="standard")
+
+
+class ImportSeriesRequest(BaseModel):
+    raw_text: str = Field(..., description="Raw CSV, ASCII, or KNMI 13-col text exported from Giovanni, GES DISC, AppEEARS, KNMI, or NOAA CDO")
+    source_hint: str = Field(default="auto")
+    region_name: str = Field(default="Imported Agency Series")
+    lat: float = Field(default=0.0, ge=-90.0, le=90.0)
+    lon: float = Field(default=0.0, ge=-180.0, le=180.0)
+    unit: str | None = Field(default=None)
     mk_variant: Literal["standard", "hamed_rao"] = Field(default="standard")
 
 
@@ -118,7 +131,6 @@ def _build_deterministic_brief(
     else:
         band_label = "Equatorial / ITCZ Tropical Belt"
 
-    # Verdict headline
     if is_sig:
         if comparison_slope_per_year is not None and (
             (sens_slope_per_year > 0 and comparison_slope_per_year < 0)
@@ -142,7 +154,6 @@ def _build_deterministic_brief(
                 f"Noise / Insufficient Window — Needs ~{years_to_significance} More Years for 95% Confidence"
             )
 
-    # Mechanism explanation
     if case_id == "case_1_enso":
         mechanism = (
             f"Across {region_name} and {comparison_name or 'Maritime Continent Indonesia'}, shifts in the Pacific "
@@ -151,7 +162,7 @@ def _build_deterministic_brief(
             f"producing inverse monthly rainfall anomalies (r = {cross_correlation_r if cross_correlation_r is not None else 'N/A'}) "
             f"and diverging multi-decade slopes ({decade_rate:+.3f} vs {(comparison_slope_per_year or 0)*10:+.3f} {meta['unit']}/decade)."
         )
-        reference = "NASA Earth Observatory — El Nino and Global Precipitation Patterns (GPM / MERRA-2)"
+        reference = "NASA Earth Observatory / Giovanni — El Nino & Global Precipitation Patterns (GPM / MERRA-2)"
     elif case_id == "case_2_dipole":
         mechanism = (
             f"In the {region_name} ({band_label}), poleward expansion of the subtropical Hadley cell descending limb "
@@ -159,7 +170,7 @@ def _build_deterministic_brief(
             f"Simultaneously, shifting mid-latitude storm tracks have moistened {comparison_name or 'the Upper Midwest'} "
             f"({(comparison_slope_per_year or 0)*10:+.4f} {meta['unit']}/decade), creating a classic continental hydrological dipole."
         )
-        reference = "NASA Earth Science / GLDAS & GRACE — North American Drought & Soil Moisture Monitoring"
+        reference = "NASA GES DISC Hydrology Time Series & GLDAS/SMAP — North American Soil Moisture Dipole"
     elif case_id == "case_3_arctic":
         mechanism = (
             f"{region_name} ({lat:.1f}°N) exhibits textbook Arctic Amplification ({decade_rate:+.2f} °C/decade): "
@@ -168,7 +179,7 @@ def _build_deterministic_brief(
             f"Atlantic Meridional Overturning Circulation (AMOC) near {comparison_name or 'the Subpolar North Atlantic'} "
             "suppresses regional surface warming (the North Atlantic 'Cold Blob')."
         )
-        reference = "NASA GISS / Earth Observatory — Arctic Amplification & The North Atlantic Warming Hole"
+        reference = "NASA GISS / KNMI Climate Explorer — Arctic Amplification & The North Atlantic Warming Hole"
     elif case_id == "case_4_amazon":
         mechanism = (
             f"Along the {region_name}, forest fragmentation and agricultural clearing weaken evapotranspiration-driven "
@@ -176,7 +187,24 @@ def _build_deterministic_brief(
             f"({decade_rate:+.4f} {meta['unit']}/decade) compared to the more intact {comparison_name or 'Central Amazon Core'} "
             f"({(comparison_slope_per_year or 0)*10:+.4f} {meta['unit']}/decade)."
         )
-        reference = "NASA Earth Observatory / MODIS & SMAP — Amazon Basin Canopy Stress & Moisture Recycling"
+        reference = "NASA AppEEARS / MODIS NDVI & GLDAS — Amazon Basin Canopy Stress & Moisture Recycling"
+    elif case_id == "case_5_seawifs_coastal":
+        mechanism = (
+            f"In the {region_name}, spring/summer watershed precipitation and river discharge pulses deliver nutrient-rich "
+            f"freshwater plumes that drive strong seasonal chlorophyll-a and runoff cycles ({decade_rate:+.3f} {meta['unit']}/decade), "
+            f"contrasting sharply with the stratified oligotrophic waters of {comparison_name or 'the Offshore Gulf Loop Current'} "
+            f"(r = {cross_correlation_r if cross_correlation_r is not None else 'N/A'}). Removing the strong annual river-discharge cycle "
+            "via STL is essential before testing for multi-decade eutrophication or hydro-climatic trends."
+        )
+        reference = "NASA NTRS 20090042747 — Time-Series Analysis of Remotely-Sensed SeaWiFS Chlorophyll in River-Influenced Coastal Regions"
+    elif case_id == "case_6_csa_swot_rcm":
+        mechanism = (
+            f"Across {region_name} ({lat:.1f}°N), high-latitude cryosphere warming ({decade_rate:+.2f} °C/decade) accelerates "
+            "permafrost thaw, river ice breakup, and coastal wetland transformation monitored by Canada's RADARSAT Constellation "
+            "Mission (RCM) Synthetic Aperture Radar and the NASA/CNES/CSA SWOT surface-water elevation mission, outpacing the "
+            f"temperate {comparison_name or 'Great Lakes / St. Lawrence Corridor'} ({(comparison_slope_per_year or 0)*10:+.2f} °C/decade)."
+        )
+        reference = "Canadian Space Agency (CSA) RCM, SWOT Mission & Geo.ca / MSC GeoMet Climate & Hydrometric Archive"
     else:
         if param == "T2M":
             if abs_lat >= 60.0:
@@ -189,27 +217,27 @@ def _build_deterministic_brief(
                     f"In this {band_label} ({lat:.2f}°, {lon:.2f}°), greenhouse radiative forcing modulated by land-atmosphere "
                     f"heat flux and regional circulation yields a deseasonalized air temperature rate of {decade_rate:+.3f} °C/decade."
                 )
-            reference = "NASA GISTEMP / MERRA-2 — Global Surface Temperature Anomaly Analysis"
+            reference = "NASA GISTEMP / MERRA-2 & NOAA NCEI CDO — Global Surface Temperature Anomaly Analysis"
         elif param in ("PRECTOTCORR", "QV2M"):
             mechanism = (
                 f"In this {band_label} ({lat:.2f}°, {lon:.2f}°), thermodynamic Clausius-Clapeyron moistening (~7% more "
                 "water vapor per °C of warming) interacts with shifting Hadley and storm-track convergence zones, "
                 f"driving a deseasonalized rate of {decade_rate:+.4f} {meta['unit']}/decade."
             )
-            reference = "NASA GPM Mission & Earth Observatory — Global Water Cycle & Atmospheric Moisture"
+            reference = "NASA GPM / Giovanni & SWOT Mission — Global Water Cycle & Surface Hydrology"
         elif param in ("GWETROOT", "GWETPROF"):
             mechanism = (
                 f"In this {band_label} ({lat:.2f}°, {lon:.2f}°), soil moisture balance reflects the competition between "
                 "precipitation supply and rising vapor-pressure-deficit evapotranspiration, yielding a net trend of "
                 f"{decade_rate:+.4f} {meta['unit']}/decade."
             )
-            reference = "NASA SMAP / GLDAS — Global Root-Zone Soil Moisture & Agricultural Drought"
+            reference = "NASA GES DISC Hydrology Time Series, AppEEARS & SMAP/GLDAS — Global Soil Moisture"
         else:
             mechanism = (
                 f"In this {band_label} ({lat:.2f}°, {lon:.2f}°), regional baroclinic wave activity and thermal expansion "
-                f"shift surface pressure anomalies at {decade_rate:+.4f} {meta['unit']}/decade."
+                f"shift surface anomalies at {decade_rate:+.4f} {meta['unit']}/decade."
             )
-            reference = "NASA MERRA-2 — Global Atmospheric Reanalysis Reference"
+            reference = "NASA MERRA-2 & KNMI Climate Explorer — Global Atmospheric Reanalysis Reference"
 
     if variance_reduction_pct >= 20.0:
         seasonality_note = (
@@ -253,7 +281,7 @@ async def _maybe_enhance_with_gemini(req: ExplainRequest, baseline: dict[str, An
 
     meta = get_parameter_metadata(req.parameter)
     prompt = (
-        "You are a NASA Earth System Science communicator writing a concise 1-page Field Dossier.\n"
+        "You are a NASA & CSA Earth System Science communicator writing a concise 1-page Field Dossier.\n"
         "Return ONLY valid JSON with keys: verdict_headline, physical_mechanism, seasonality_note, horizon_note, reference.\n"
         f"Data context:\n"
         f"- Region: {req.region_name} ({req.lat:.2f}, {req.lon:.2f}), Biome: {baseline['biome_zone']}\n"
@@ -308,7 +336,7 @@ def get_parameters() -> dict[str, Any]:
 
 @app.get("/api/cases")
 def get_cases() -> dict[str, Any]:
-    """Return metadata for the 4 curated Detective Case Files plus parameter registry."""
+    """Return metadata for the 6 curated Detective Case Files plus parameter registry."""
     return {"cases": list_preset_cases(), "parameters": PARAMETER_METADATA}
 
 
@@ -328,6 +356,85 @@ async def get_case_detail(case_id: str) -> dict[str, Any]:
         end_year=c["default_window"][1],
     )
     return await investigate_endpoint(req)
+
+
+@app.get("/api/partner-intel")
+async def partner_intel_endpoint(
+    lat: float = Query(default=78.22, ge=-90.0, le=90.0),
+    lon: float = Query(default=15.63, ge=-180.0, le=180.0),
+    parameter: str = Query(default="T2M"),
+    start_year: int = Query(default=1990, ge=1981, le=2025),
+    end_year: int = Query(default=2025, ge=1981, le=2025),
+) -> dict[str, Any]:
+    """Query live NASA CMR (SWOT/SeaWiFS/MODIS), AppEEARS, CSA GeoMet, NOAA CDO, and deep links."""
+    return await fetch_partner_intel(lat, lon, parameter, start_year, end_year)
+
+
+@app.post("/api/import-series")
+def import_series_endpoint(req: ImportSeriesRequest) -> dict[str, Any]:
+    """Parse external CSV/ASCII/.dat from Giovanni, GES DISC Hydrology, AppEEARS, KNMI, or NOAA CDO and analyze."""
+    try:
+        timestamps, values, detected_meta = parse_external_timeseries(req.raw_text, req.source_hint)
+        analysis = analyze_series(
+            timestamps=timestamps,
+            values=values,
+            mk_variant=req.mk_variant,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    unit = req.unit.strip() if req.unit and req.unit.strip() else detected_meta["unit"]
+    meta = {
+        "parameter_code": detected_meta["parameter_code"],
+        "parameter_name": detected_meta["parameter_name"],
+        "unit": unit,
+        "mission_source": detected_meta["mission_source"],
+        "resolution": "Imported Point / Regional Time Series",
+        "plain_definition": f"User-imported monthly time series from {detected_meta['mission_source']}.",
+        "question": "Custom Multi-Agency Time-Series Import",
+        "positive_label": "Upward Trend",
+        "negative_label": "Downward Trend",
+    }
+
+    ps = analysis["primary_stats"]
+    s_yr = int(timestamps[0][:4])
+    e_yr = int(timestamps[-1][:4])
+    brief = _build_deterministic_brief(
+        lat=req.lat,
+        lon=req.lon,
+        parameter=meta["parameter_code"],
+        sens_slope_per_year=ps["sens_slope_per_year"],
+        p_value=ps["p_value"],
+        variance_reduction_pct=ps["variance_reduction_pct"],
+        years_to_significance=ps["years_to_significance"],
+        observation_years=ps["observation_years"],
+        region_name=req.region_name,
+    )
+
+    return {
+        "request": {
+            "case_id": "imported_agency_series",
+            "parameter": meta["parameter_code"],
+            "primary_point": {"name": req.region_name, "lat": req.lat, "lon": req.lon},
+            "comparison_point": None,
+            "start_year": s_yr,
+            "end_year": e_yr,
+            "mk_variant": req.mk_variant,
+        },
+        "response": {
+            "metadata": meta,
+            "data_status": "live",
+            "fallback_note": f"Analyzed {len(timestamps)} monthly records imported from {detected_meta['mission_source']}.",
+            "primary_bounding_box": compute_bounding_box(req.lat, req.lon),
+            "comparison_bounding_box": None,
+            "primary_series": analysis["primary_series"],
+            "primary_stats": analysis["primary_stats"],
+            "comparison_series": None,
+            "comparison_stats": None,
+            "teleconnection": analysis["teleconnection"],
+            "detective_brief": brief,
+        },
+    }
 
 
 @app.post("/api/analyze")
@@ -376,7 +483,6 @@ async def investigate_endpoint(req: InvestigateRequest) -> dict[str, Any]:
     primary_data: dict[str, Any] | None = None
     comp_data: dict[str, Any] | None = None
 
-    # Fast zero-latency cache path for preset Case Files
     if req.case_id:
         preset = get_preset_case_series(req.case_id, req.start_year, req.end_year)
         if preset is not None and preset["case"]["parameter"].upper() == param:
@@ -394,7 +500,6 @@ async def investigate_endpoint(req: InvestigateRequest) -> dict[str, Any]:
                     ):
                         comp_data = preset["comparison"]
 
-    # Live / live_cache path
     try:
         if primary_data is None and req.comparison_point is not None:
             primary_data, comp_data = await asyncio.gather(

@@ -695,6 +695,61 @@ export default function TrendLab({
             </p>
           )}
         </div>
+
+        {/* Space Agency & Statistical Methodology Literature Links */}
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-[11px] text-slate-400">
+          <p className="font-semibold text-slate-200">Statistical &amp; Space Agency References</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            <a
+              href="https://ntrs.nasa.gov/api/citations/20090042747/downloads/20090042747.pdf"
+              target="_blank"
+              rel="noreferrer"
+              className="rounded bg-slate-900 px-2 py-0.5 text-cyan-300 hover:underline"
+            >
+              NASA SeaWiFS Trend Study (PDF)
+            </a>
+            <a
+              href="https://medium.com/@snp.kriss/statistical-test-methods-to-detect-trends-in-time-series-data-b361a0ec530b"
+              target="_blank"
+              rel="noreferrer"
+              className="rounded bg-slate-900 px-2 py-0.5 text-cyan-300 hover:underline"
+            >
+              Trend Test Methods (MK/Sen)
+            </a>
+            <a
+              href="https://www.statsig.com/perspectives/a-comprehensive-guide-to-statistical-significance"
+              target="_blank"
+              rel="noreferrer"
+              className="rounded bg-slate-900 px-2 py-0.5 text-cyan-300 hover:underline"
+            >
+              Statistical Significance Guide
+            </a>
+            <a
+              href="https://www.asc-csa.gc.ca/eng/satellites/swot/"
+              target="_blank"
+              rel="noreferrer"
+              className="rounded bg-slate-900 px-2 py-0.5 text-indigo-300 hover:underline"
+            >
+              CSA SWOT
+            </a>
+            <a
+              href="https://donnees-data.asc-csa.gc.ca/en/dataset/rcm"
+              target="_blank"
+              rel="noreferrer"
+              className="rounded bg-slate-900 px-2 py-0.5 text-indigo-300 hover:underline"
+            >
+              CSA RCM Data
+            </a>
+            <a
+              href="https://github.com/asc-csa/Synthetic_Aperture_Radar_Tutorial"
+              target="_blank"
+              rel="noreferrer"
+              className="rounded bg-slate-900 px-2 py-0.5 text-indigo-300 hover:underline"
+            >
+              CSA SAR Tutorial
+            </a>
+          </div>
+        </div>
       </aside>
     </section>
   );

@@ -1,6 +1,6 @@
 # TerraShift — Earth System Trend Detective
 
-**TerraShift** is a NASA Earth observation trend-detection and teleconnection laboratory built with an 8-file FastAPI + React vertical architecture. It strips strong seasonal cycles via **STL decomposition**, validates multi-decade climate shifts using **Mann-Kendall**, **Sen's slope**, and **Student's t-tests**, computes **Time-to-Significance horizons** when short observation windows are inconclusive, and connects live to the zero-auth **NASA POWER Monthly API** with instant local JSON caching and offline fallback.
+**TerraShift** is a multi-agency Earth observation trend-detection and teleconnection laboratory built with an 8-file FastAPI + React vertical architecture. It strips strong seasonal cycles via **STL decomposition**, validates multi-decade climate shifts using **Mann-Kendall**, **Sen's slope**, and **Student's t-tests**, computes **Time-to-Significance horizons**, and integrates **Mapbox**, **NASA**, **NOAA**, **KNMI**, and **CSA (Canadian Space Agency)** data and resources.
 
 ---
 
@@ -10,16 +10,16 @@
 TerraShift/
 ├── RULES.md                  # Global schema, statistical, and caching guardrails
 ├── backend/
-│   ├── main.py               # FastAPI endpoints (/api/cases, /api/investigate, /api/analyze, /api/explain)
+│   ├── main.py               # FastAPI endpoints (/api/cases, /api/investigate, /api/partner-intel, /api/import-series, /api/explain)
 │   ├── stats_engine.py       # STL decomposition (period=12), Mann-Kendall, Sen's slope, OLS t-test, r
-│   ├── nasa_service.py       # Live NASA POWER fetcher, metadata registry, atomic JSON cache & fallback
-│   ├── cases_cache.json      # 4 seeded Detective Case Files + live coordinate cache
+│   ├── nasa_service.py       # NASA POWER, NASA CMR, AppEEARS, CSA GeoMet, NOAA CDO, KNMI & Giovanni CSV parser
+│   ├── cases_cache.json      # 6 seeded Detective Case Files + live coordinate cache
 │   ├── requirements.txt
-│   └── tests/test_stats.py   # Pytest suite for synthetic trends, API endpoints & offline fallback
+│   └── tests/test_stats.py   # Pytest suite for synthetic trends, API endpoints, partner intel & CSV/KNMI importers
 └── frontend/
     └── src/
-        ├── App.tsx           # State orchestration & Guided Earth Detective Control Bar
-        ├── SplitMap.tsx      # Dual-region Leaflet map (Marker A / B) & MERRA-2 grid bounding boxes
+        ├── App.tsx           # State orchestration, Partner Telemetry Hub & Giovanni/KNMI CSV Importer
+        ├── SplitMap.tsx      # Dual-region Mapbox / Satellite / Terrain map + Reverse Geocoding & MERRA-2 grid boxes
         ├── TrendLab.tsx      # Raw / Deseasonalized / Teleconnection chart switcher, window slider & Scorecard
         ├── DossierModal.tsx  # Physical mechanism synthesis & 1-page printable PDF Field Dossier
         └── types.ts          # Shared TypeScript API contracts
@@ -27,45 +27,47 @@ TerraShift/
 
 ---
 
-## 2. Quick Start
+## 2. Integrated Map & Space Agency APIs / Resources
 
-### Backend (FastAPI on port 8000)
+- **Mapbox Map & Geocoding (`SplitMap.tsx`)**:
+  - Supports **Mapbox Static Tiles API** (`mapbox/dark-v11`, `mapbox/satellite-streets-v12`, `mapbox/outdoors-v12`) and **Mapbox Reverse Geocoding v5** when `VITE_MAPBOX_TOKEN` is set or entered via the in-app **Mapbox Key** pill, with automatic fallback to CARTO Dark / Esri World Satellite / OpenTopoMap.
+- **NASA Data & Resources**:
+  - **NASA POWER Monthly API** (`power.larc.nasa.gov`) — Live zero-auth 1981–2025 monthly meteorology & soil hydrology.
+  - **NASA CMR API** (`cmr.earthdata.nasa.gov`) — Live bounding-box satellite granule/collection matching for **SWOT**, **SeaWiFS**, **MODIS**, **GPM**, and **GLDAS**.
+  - **NASA AppEEARS API** (`appeears.earthdatacloud.nasa.gov/api/v1/product`) — Live product catalog lookup + CSV time-series importer.
+  - **NASA Giovanni & GES DISC Hydrology Time Series** — Coordinate-parameterized deep links + direct CSV/ASCII time-series importer (`POST /api/import-series`).
+  - **NOAA Climate Data Online (CDO)** (`ncei.noaa.gov/cdo-web/api/v2`) — Station lookup (`NOAA_CDO_TOKEN`) + CSV importer.
+  - **SeaWiFS Coastal Chlorophyll Reference** ([NASA NTRS 20090042747](https://ntrs.nasa.gov/api/citations/20090042747/downloads/20090042747.pdf)) — Grounded in Case 5 & methodology citations.
+- **Space Agency Partner & Statistical Resources**:
+  - **KNMI Climate Explorer** (`climexp.knmi.nl`) — Native 13-column `.dat` / `.txt` table parser in `POST /api/import-series` + portal links.
+  - **Statistical Methodology Guides** — Embedded references to Mann-Kendall/Sen's slope trend detection ([Medium](https://medium.com/@snp.kriss/statistical-test-methods-to-detect-trends-in-time-series-data-b361a0ec530b)) and statistical significance ([Statsig](https://www.statsig.com/perspectives/a-comprehensive-guide-to-statistical-significance)).
+- **CSA (Canadian Space Agency)**:
+  - **Geo.ca / MSC GeoMet Open API** (`api.weather.gc.ca`) — Live zero-auth queries for Canadian monthly climate (`climate-monthly`) and hydrometric river/lake water-level & discharge (`hydrometric-monthly-mean`) stations.
+  - **RADARSAT Constellation Mission (RCM)**, **SWOT Mission**, **CSA Ecosystem Monitoring**, and **CSA SAR Python Tutorial** integrated in Case 6 and the Partner Hub.
+
+---
+
+## 3. Curated Detective Case Files (Pre-Seeded in `cases_cache.json`)
+1. **Case 1 — ENSO Rainfall Seesaw (`PRECTOTCORR`)**: Northern Peru Coast vs. East Kalimantan, Indonesia.
+2. **Case 2 — North American Hydrological Dipole (`GWETROOT`)**: US Southwest / Colorado Basin drying vs. Upper Midwest wetting.
+3. **Case 3 — Polar Amplification vs. Atlantic Cold Blob (`T2M`)**: Svalbard Archipelago rapid warming vs. Subpolar North Atlantic.
+4. **Case 4 — Amazon Canopy Moisture Stress (`GWETPROF`)**: Southeastern Amazon Deforestation Arc vs. Central Amazon Core.
+5. **Case 5 — SeaWiFS Coastal Plume Runoff Seesaw (`PRECTOTCORR`)**: Mississippi River Delta Plume vs. Offshore Gulf Loop Current (NASA NTRS `20090042747`).
+6. **Case 6 — CSA SWOT & RCM Canadian Cryosphere/Water Shift (`T2M`)**: Mackenzie Delta / Beaufort Coast vs. Great Lakes / St. Lawrence Corridor.
+
+---
+
+## 4. Quick Start
+
 ```bash
+# 1. Backend (FastAPI on :8000)
 pip install -r backend/requirements.txt
-# Optional: re-seed the 4 preset Detective Case Files from live NASA POWER
-python backend/nasa_service.py --seed
-
-# Run automated tests
 python -m pytest -v backend/tests/test_stats.py
-
-# Start backend server
 cd backend
-uvicorn main:app --reload --port 8000
-```
+python -m uvicorn main:app --reload --port 8000
 
-> **Optional AI Grounding**: Set `GEMINI_API_KEY` in your environment to enhance `/api/explain` briefs with Gemini 2.5 Flash. When unset or unreachable, TerraShift automatically uses its built-in NASA physics synthesis templates so demonstrations never depend on an API key.
-
-### Frontend (Vite + React + Tailwind on port 5173)
-```bash
+# 2. Frontend (Vite on :5173)
 cd frontend
 npm install
 npm run dev
 ```
-Open `http://localhost:5173` (Vite proxies `/api/*` directly to `http://127.0.0.1:8000`).
-
----
-
-## 3. Curated Detective Case Files (Pre-Seeded from NASA POWER)
-1. **Case 1 — ENSO Rainfall Seesaw (`PRECTOTCORR`)**: Northern Peru Coast vs. East Kalimantan, Indonesia.
-2. **Case 2 — North American Hydrological Dipole (`GWETROOT`)**: US Southwest / Colorado Basin drying vs. Upper Midwest wetting.
-3. **Case 3 — Polar Amplification vs. Atlantic Cold Blob (`T2M`)**: Svalbard Archipelago rapid warming vs. Subpolar North Atlantic.
-4. **Case 4 — Amazon Canopy Moisture Stress (`GWETPROF`)**: Southeastern Amazon Deforestation Arc drying twice as fast as the Central Amazon Core.
-
----
-
-## 4. Recommended Demo Walkthrough
-1. Start on **Case 3 (Arctic Amplification)** in **`1. Raw Satellite Series`** mode to show how large winter-to-summer swings mask long-term warming (`raw_p_value` vs `p_value`).
-2. Click **`Strip Seasonal Cycle (STL) →`** to reveal the deseasonalized anomaly slope (`+0.83 °C/decade`) and 95% confidence band.
-3. Click **`5-Yr Test (2018–2022)`** on the Observation Window bar to turn the Verdict Scorecard amber (*Not Yet Significant — Needs ~18 More Years*), then click **`35-Yr Baseline (1990–2025)`** to flip it green (*Statistically Significant Trend*).
-4. Switch to **`3. Teleconnection Overlay`** or load **Case 2 (Hydrological Dipole)** to show statistically significant opposite regional slopes (`drying` vs `wetting`).
-5. Click **`Field Dossier (PDF)`** and **`Print / Save 1-Page PDF`** for a formatted single-page report.

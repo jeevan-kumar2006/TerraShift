@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import L from "leaflet";
 import {
   MapContainer,
@@ -10,8 +10,10 @@ import {
   useMap,
   useMapEvents,
 } from "react-leaflet";
-import { Crosshair, ArrowLeftRight, Trash2, Radio } from "lucide-react";
+import { Crosshair, ArrowLeftRight, Trash2, Radio, KeyRound, Globe, Layers } from "lucide-react";
 import type { BoundingBox, GeoPoint, SeriesStats, TeleconnectionSummary } from "./types";
+
+type MapStyleMode = "dark" | "satellite" | "terrain";
 
 interface SplitMapProps {
   parameter: string;
@@ -19,7 +21,7 @@ interface SplitMapProps {
   pointB: GeoPoint | null;
   activeTarget: "A" | "B";
   onChangeActiveTarget: (target: "A" | "B") => void;
-  onSelectPoint: (target: "A" | "B", lat: number, lon: number) => void;
+  onSelectPoint: (target: "A" | "B", lat: number, lon: number, resolvedName?: string) => void;
   onClearPointB: () => void;
   onSwapPoints: () => void;
   primaryStats: SeriesStats | null;
@@ -29,6 +31,10 @@ interface SplitMapProps {
   comparisonBBox: BoundingBox | null;
   fitVersion: number;
 }
+
+const ENV_MAPBOX_TOKEN =
+  ((import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_MAPBOX_TOKEN || "").trim();
+const STORAGE_KEY = "terrashift_mapbox_token";
 
 function getSlopeColor(
   parameter: string,
@@ -52,7 +58,6 @@ function getSlopeColor(
       ? { hex: "#818cf8", label: "Rising Pressure" }
       : { hex: "#fbbf24", label: "Falling Pressure" };
   }
-  // Precipitation / Soil Moisture / Humidity
   return slopePerYear >= 0
     ? { hex: "#2dd4bf", label: "Significant Wetting" }
     : { hex: "#f59e0b", label: "Significant Drying" };
@@ -87,17 +92,39 @@ function createBadgeIcon(label: "A" | "B", colorHex: string, isActive: boolean):
   });
 }
 
+async function reverseGeocodeMapbox(lat: number, lon: number, token: string): Promise<string | undefined> {
+  if (!token) return undefined;
+  try {
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=place,region,country&limit=1&access_token=${encodeURIComponent(token)}`;
+    const resp = await fetch(url);
+    if (!resp.ok) return undefined;
+    const data = await resp.json();
+    const feat = data?.features?.[0];
+    if (feat?.place_name) {
+      return String(feat.place_name);
+    }
+  } catch {
+    // ignore geocoding network errors and fall back to coordinates
+  }
+  return undefined;
+}
+
 function MapClickHandler({
   activeTarget,
+  mapboxToken,
   onSelectPoint,
 }: {
   activeTarget: "A" | "B";
-  onSelectPoint: (target: "A" | "B", lat: number, lon: number) => void;
+  mapboxToken: string;
+  onSelectPoint: (target: "A" | "B", lat: number, lon: number, resolvedName?: string) => void;
 }) {
   useMapEvents({
-    click(e) {
+    async click(e) {
       const wrapped = e.latlng.wrap();
-      onSelectPoint(activeTarget, Number(wrapped.lat.toFixed(3)), Number(wrapped.lng.toFixed(3)));
+      const lat = Number(wrapped.lat.toFixed(3));
+      const lon = Number(wrapped.lng.toFixed(3));
+      const resolvedName = await reverseGeocodeMapbox(lat, lon, mapboxToken);
+      onSelectPoint(activeTarget, lat, lon, resolvedName);
     },
   });
   return null;
@@ -153,6 +180,90 @@ export default function SplitMap({
   comparisonBBox,
   fitVersion,
 }: SplitMapProps) {
+  const [styleMode, setStyleMode] = useState<MapStyleMode>("dark");
+  const [mapboxToken, setMapboxToken] = useState<string>(() => {
+    if (ENV_MAPBOX_TOKEN) return ENV_MAPBOX_TOKEN;
+    try {
+      return localStorage.getItem(STORAGE_KEY) || "";
+    } catch {
+      return "";
+    }
+  });
+  const [showTokenEditor, setShowTokenEditor] = useState<boolean>(false);
+  const [tokenDraft, setTokenDraft] = useState<string>(mapboxToken);
+  const [mapboxError, setMapboxError] = useState<boolean>(false);
+
+  const useMapboxTiles = Boolean(mapboxToken.trim()) && !mapboxError;
+
+  const tileConfig = useMemo(() => {
+    if (useMapboxTiles) {
+      const styleId =
+        styleMode === "satellite"
+          ? "mapbox/satellite-streets-v12"
+          : styleMode === "terrain"
+            ? "mapbox/outdoors-v12"
+            : "mapbox/dark-v11";
+      return {
+        key: `mb-${styleId}-${mapboxToken.slice(-6)}`,
+        url: `https://api.mapbox.com/styles/v1/${styleId}/tiles/512/{z}/{x}/{y}@2x?access_token=${encodeURIComponent(
+          mapboxToken.trim()
+        )}`,
+        attribution:
+          '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> &copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        tileSize: 512,
+        zoomOffset: -1,
+        providerBadge: `Mapbox (${styleMode})`,
+      };
+    }
+
+    if (styleMode === "satellite") {
+      return {
+        key: "fallback-sat",
+        url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attribution: "Tiles &copy; Esri &mdash; Source: Esri, NASA, USGS",
+        tileSize: 256,
+        zoomOffset: 0,
+        providerBadge: "Satellite Imagery (Add Mapbox Key for Mapbox GL Tiles)",
+      };
+    }
+
+    if (styleMode === "terrain") {
+      return {
+        key: "fallback-terrain",
+        url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+        attribution: "&copy; OpenTopoMap &copy; OpenStreetMap contributors",
+        tileSize: 256,
+        zoomOffset: 0,
+        providerBadge: "Hydrology / Terrain",
+      };
+    }
+
+    return {
+      key: "fallback-dark",
+      url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; CARTO',
+      tileSize: 256,
+      zoomOffset: 0,
+      providerBadge: "Dark Vector (Mapbox Ready)",
+    };
+  }, [mapboxToken, styleMode, useMapboxTiles]);
+
+  const handleSaveToken = () => {
+    const cleaned = tokenDraft.trim();
+    setMapboxToken(cleaned);
+    setMapboxError(false);
+    try {
+      if (cleaned) {
+        localStorage.setItem(STORAGE_KEY, cleaned);
+      } else {
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    } catch {
+      // ignore storage errors
+    }
+    setShowTokenEditor(false);
+  };
+
   const colorA = getSlopeColor(parameter, primaryStats?.sens_slope_per_year, primaryStats?.is_significant);
   const colorB = getSlopeColor(
     parameter,
@@ -188,14 +299,53 @@ export default function SplitMap({
     <div className="relative flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/70 shadow-xl">
       {/* Top Overlay Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-900/95 px-4 py-2.5">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Crosshair className="h-4 w-4 text-cyan-400" />
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
             Dual-Region Teleconnection Map
           </span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-950/40 px-2 py-0.5 text-[10px] font-medium text-cyan-300">
+            <Globe className="h-3 w-3" />
+            {tileConfig.providerBadge}
+          </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
+          {/* Mapbox Layer Switcher */}
+          <div className="flex items-center rounded-lg border border-slate-800 bg-slate-950 p-0.5 text-[11px]">
+            <Layers className="mx-1.5 h-3 w-3 text-slate-400" />
+            {(["dark", "satellite", "terrain"] as MapStyleMode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setStyleMode(m)}
+                className={`rounded-md px-2 py-0.5 font-medium capitalize transition ${
+                  styleMode === m
+                    ? "bg-cyan-500 text-slate-950"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setTokenDraft(mapboxToken);
+              setShowTokenEditor((s) => !s);
+            }}
+            className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition ${
+              useMapboxTiles
+                ? "border border-emerald-500/40 bg-emerald-950/40 text-emerald-300"
+                : "border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
+            }`}
+          >
+            <KeyRound className="h-3 w-3" />
+            {useMapboxTiles ? "Mapbox Active" : "Mapbox Key"}
+          </button>
+
           <button
             type="button"
             onClick={() => onChangeActiveTarget("A")}
@@ -254,22 +404,62 @@ export default function SplitMap({
         </div>
       </div>
 
-      {/* Leaflet Canvas */}
+      {/* Optional Mapbox API Token Bar */}
+      {showTokenEditor && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-950 px-4 py-2 text-xs">
+          <span className="text-slate-300">
+            Enter a Mapbox public token (<code className="text-cyan-300">pk.eyJ...</code>) or set{" "}
+            <code className="text-cyan-300">VITE_MAPBOX_TOKEN</code> to enable Mapbox Static Tiles &amp; Reverse Geocoding:
+          </span>
+          <div className="flex items-center gap-2">
+            <input
+              type="password"
+              value={tokenDraft}
+              onChange={(e) => setTokenDraft(e.target.value)}
+              placeholder="pk.eyJ1Ijoi..."
+              className="w-64 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 font-mono text-xs text-slate-100 outline-none focus:border-cyan-400"
+            />
+            <button
+              type="button"
+              onClick={handleSaveToken}
+              className="rounded-lg bg-cyan-500 px-3 py-1 font-bold text-slate-950 hover:bg-cyan-400"
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Map Canvas */}
       <div className="relative h-[340px] w-full sm:h-[380px]">
         <MapContainer
           center={[20, 0]}
           zoom={2}
           minZoom={2}
-          maxZoom={10}
+          maxZoom={12}
           worldCopyJump={true}
           className="h-full w-full"
         >
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>'
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+            key={tileConfig.key}
+            attribution={tileConfig.attribution}
+            url={tileConfig.url}
+            tileSize={tileConfig.tileSize}
+            zoomOffset={tileConfig.zoomOffset}
+            eventHandlers={{
+              tileerror() {
+                if (useMapboxTiles) {
+                  setMapboxError(true);
+                }
+              },
+            }}
           />
 
-          <MapClickHandler activeTarget={activeTarget} onSelectPoint={onSelectPoint} />
+          <MapClickHandler
+            activeTarget={activeTarget}
+            mapboxToken={useMapboxTiles ? mapboxToken : ""}
+            onSelectPoint={onSelectPoint}
+          />
           <ViewportController pointA={pointA} pointB={pointB} fitVersion={fitVersion} />
 
           {/* MERRA-2 0.5 x 0.625 Grid Cell Bounding Boxes */}
@@ -303,7 +493,7 @@ export default function SplitMap({
                 color: "#38bdf8",
                 weight: 2,
                 dashArray: "6 8",
-                opacity: 0.8,
+                opacity: 0.85,
               }}
             />
           )}
@@ -314,9 +504,16 @@ export default function SplitMap({
               icon={iconA}
               draggable={true}
               eventHandlers={{
-                dragend(e) {
+                async dragend(e) {
                   const pos = e.target.getLatLng().wrap();
-                  onSelectPoint("A", Number(pos.lat.toFixed(3)), Number(pos.lng.toFixed(3)));
+                  const lat = Number(pos.lat.toFixed(3));
+                  const lon = Number(pos.lng.toFixed(3));
+                  const resolvedName = await reverseGeocodeMapbox(
+                    lat,
+                    lon,
+                    useMapboxTiles ? mapboxToken : ""
+                  );
+                  onSelectPoint("A", lat, lon, resolvedName);
                 },
               }}
             >
@@ -338,9 +535,16 @@ export default function SplitMap({
               icon={iconB}
               draggable={true}
               eventHandlers={{
-                dragend(e) {
+                async dragend(e) {
                   const pos = e.target.getLatLng().wrap();
-                  onSelectPoint("B", Number(pos.lat.toFixed(3)), Number(pos.lng.toFixed(3)));
+                  const lat = Number(pos.lat.toFixed(3));
+                  const lon = Number(pos.lng.toFixed(3));
+                  const resolvedName = await reverseGeocodeMapbox(
+                    lat,
+                    lon,
+                    useMapboxTiles ? mapboxToken : ""
+                  );
+                  onSelectPoint("B", lat, lon, resolvedName);
                 },
               }}
             >

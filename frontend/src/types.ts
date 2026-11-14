@@ -114,3 +114,44 @@ export interface InvestigateResponse {
     detective_brief: DetectiveBrief;
   };
 }
+
+export interface PartnerDeepLink {
+  id: string;
+  agency: string;
+  title: string;
+  category: string;
+  description: string;
+  url: string;
+}
+
+export interface CmrCollection {
+  short_name: string;
+  title: string;
+  data_center: string;
+  summary: string;
+}
+
+export interface AppeearsProduct {
+  product_id: string;
+  platform: string;
+  description: string;
+  resolution: string;
+}
+
+export interface CsaStation {
+  type: string;
+  station_name: string;
+  station_id: string;
+  province: string;
+  sample_date: string;
+  sample_metric: string;
+}
+
+export interface PartnerIntelResponse {
+  coordinates: { lat: number; lon: number; bounding_box: BoundingBox };
+  cmr_collections: CmrCollection[];
+  appeears_products: AppeearsProduct[];
+  csa_geomet_stations: CsaStation[];
+  noaa_cdo_status: string;
+  deep_links: PartnerDeepLink[];
+}

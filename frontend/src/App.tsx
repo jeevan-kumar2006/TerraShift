@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  BookOpen,
   Compass,
   Database,
+  ExternalLink,
   FileText,
+  Globe2,
   HelpCircle,
   Loader2,
   MapPin,
   Play,
   Satellite,
   Sparkles,
+  Upload,
   Wifi,
   WifiOff,
 } from "lucide-react";
@@ -19,6 +23,7 @@ import type {
   GeoPoint,
   InvestigateResponse,
   ParameterMeta,
+  PartnerIntelResponse,
   PresetCaseMeta,
 } from "./types";
 
@@ -26,22 +31,22 @@ const DETECTIVE_QUESTIONS: { question: string; parameter: string; hint: string }
   {
     question: "Where is warming fastest?",
     parameter: "T2M",
-    hint: "MERRA-2 / AIRS 2m Air Temperature (°C)",
+    hint: "MERRA-2 / AIRS / CSA GeoMet 2m Air Temp (°C)",
   },
   {
     question: "Where is drought worsening?",
     parameter: "GWETROOT",
-    hint: "GLDAS / SMAP Root-Zone Soil Moisture",
+    hint: "GLDAS / SMAP / GES DISC Root-Zone Soil Moisture",
   },
   {
     question: "Where is rainfall accelerating?",
     parameter: "PRECTOTCORR",
-    hint: "GPM / MERRA-2 Corrected Precipitation",
+    hint: "GPM / MERRA-2 / Giovanni Corrected Precipitation",
   },
   {
     question: "Where are forest canopies drying?",
     parameter: "GWETPROF",
-    hint: "MODIS NDVI / GLDAS Deep Soil Wetness",
+    hint: "MODIS NDVI / AppEEARS / GLDAS Deep Soil Wetness",
   },
   {
     question: "Where is atmospheric humidity rising?",
@@ -49,6 +54,41 @@ const DETECTIVE_QUESTIONS: { question: string; parameter: string; hint: string }
     hint: "MERRA-2 2m Specific Humidity (g/kg)",
   },
 ];
+
+function buildSampleGiovanniCsv(): string {
+  const rows = [
+    "# NASA Giovanni Area-Averaged Time Series (MODIS / SeaWiFS Chlorophyll-a & Coastal Plume Index)",
+    "# Region: Mississippi River Delta Plume (29.15N, 89.25W)",
+    "time,chlorophyll_a_mg_m3",
+  ];
+  for (let yr = 1998; yr <= 2024; yr++) {
+    for (let m = 1; m <= 12; m++) {
+      const t = yr - 1998 + (m - 1) / 12;
+      const seasonal = 2.4 * Math.sin((2 * Math.PI * (m - 3)) / 12);
+      const val = 4.2 + 0.065 * t + seasonal + ((yr * 7 + m * 13) % 11 - 5) * 0.08;
+      rows.push(`${yr}-${String(m).padStart(2, "0")}-01,${val.toFixed(4)}`);
+    }
+  }
+  return rows.join("\n");
+}
+
+function buildSampleKnmiDat(): string {
+  const rows = [
+    "# KNMI Climate Explorer & CSA Hydrometric Monthly Water-Level Anomaly (m)",
+    "# Station: Mackenzie River / Beaufort Delta Benchmark (68.80N, 134.40W)",
+  ];
+  for (let yr = 1995; yr <= 2024; yr++) {
+    const vals: string[] = [];
+    for (let m = 1; m <= 12; m++) {
+      const t = yr - 1995 + (m - 1) / 12;
+      const seasonal = 1.85 * Math.cos((2 * Math.PI * (m - 6)) / 12);
+      const v = 1.1 + 0.028 * t + seasonal + ((yr * 3 + m * 5) % 9 - 4) * 0.04;
+      vals.push(v.toFixed(3));
+    }
+    rows.push(`${yr} ${vals.join(" ")}`);
+  }
+  return rows.join("\n");
+}
 
 export default function App() {
   const [cases, setCases] = useState<PresetCaseMeta[]>([]);
@@ -76,8 +116,43 @@ export default function App() {
   const [dossierOpen, setDossierOpen] = useState<boolean>(false);
   const [fitVersion, setFitVersion] = useState<number>(1);
 
+  // Multi-Agency Partner Hub & Universal Series Importer states
+  const [showPartnerHub, setShowPartnerHub] = useState<boolean>(false);
+  const [partnerIntel, setPartnerIntel] = useState<PartnerIntelResponse | null>(null);
+  const [intelLoading, setIntelLoading] = useState<boolean>(false);
+  const [showImportModal, setShowImportModal] = useState<boolean>(false);
+  const [importText, setImportText] = useState<string>("");
+  const [importRegionName, setImportRegionName] = useState<string>("NASA Giovanni / Partner Series");
+  const [importUnit, setImportUnit] = useState<string>("mg/m³");
+  const [importSourceHint, setImportSourceHint] = useState<string>("auto");
+
   const abortRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<number | null>(null);
+
+  const fetchPartnerMetadata = useCallback(
+    async (lat: number, lon: number, param: string, sYr: number, eYr: number) => {
+      setIntelLoading(true);
+      try {
+        const qs = new URLSearchParams({
+          lat: String(lat),
+          lon: String(lon),
+          parameter: param,
+          start_year: String(sYr),
+          end_year: String(eYr),
+        });
+        const resp = await fetch(`/api/partner-intel?${qs.toString()}`);
+        if (resp.ok) {
+          const data: PartnerIntelResponse = await resp.json();
+          setPartnerIntel(data);
+        }
+      } catch {
+        // non-blocking metadata enrichment
+      } finally {
+        setIntelLoading(false);
+      }
+    },
+    []
+  );
 
   const runInvestigation = useCallback(
     async (opts?: {
@@ -126,6 +201,7 @@ export default function App() {
         }
         const data: InvestigateResponse = await resp.json();
         setResult(data);
+        fetchPartnerMetadata(targetA.lat, targetA.lon, targetParam, targetWin[0], targetWin[1]);
       } catch (err) {
         if ((err as Error).name === "AbortError") return;
         setError((err as Error).message || "Unable to connect to TerraShift backend.");
@@ -133,10 +209,9 @@ export default function App() {
         setLoading(false);
       }
     },
-    [caseId, mkVariant, parameter, pointA, pointB, windowRange]
+    [caseId, fetchPartnerMetadata, mkVariant, parameter, pointA, pointB, windowRange]
   );
 
-  // Load case catalog + run initial Case 3 (or Case 1) on mount
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -147,7 +222,9 @@ export default function App() {
           if (!mounted) return;
           setCases(data.cases || []);
           setParameters(data.parameters || {});
-          const initial = (data.cases || []).find((c: PresetCaseMeta) => c.case_id === "case_3_arctic") || data.cases?.[0];
+          const initial =
+            (data.cases || []).find((c: PresetCaseMeta) => c.case_id === "case_3_arctic") ||
+            data.cases?.[0];
           if (initial) {
             setCaseId(initial.case_id);
             setParameter(initial.parameter);
@@ -204,14 +281,19 @@ export default function App() {
     }
   };
 
-  const handleSelectPoint = (target: "A" | "B", lat: number, lon: number) => {
+  const handleSelectPoint = (
+    target: "A" | "B",
+    lat: number,
+    lon: number,
+    resolvedName?: string
+  ) => {
     setMode("custom");
     setCaseId(null);
-    const label = `${lat >= 0 ? `${lat.toFixed(2)}°N` : `${Math.abs(lat).toFixed(2)}°S`}, ${
+    const coordLabel = `${lat >= 0 ? `${lat.toFixed(2)}°N` : `${Math.abs(lat).toFixed(2)}°S`}, ${
       lon >= 0 ? `${lon.toFixed(2)}°E` : `${Math.abs(lon).toFixed(2)}°W`
     }`;
     const newPt: GeoPoint = {
-      name: target === "A" ? `Custom A (${label})` : `Custom B (${label})`,
+      name: resolvedName || (target === "A" ? `Region A (${coordLabel})` : `Region B (${coordLabel})`),
       lat,
       lon,
     };
@@ -266,6 +348,43 @@ export default function App() {
     }, 220);
   };
 
+  const handleRunImportedSeries = async () => {
+    if (!importText.trim()) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const resp = await fetch("/api/import-series", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          raw_text: importText,
+          source_hint: importSourceHint,
+          region_name: importRegionName,
+          lat: pointA?.lat ?? 29.15,
+          lon: pointA?.lon ?? -89.25,
+          unit: importUnit,
+          mk_variant: mkVariant,
+        }),
+      });
+      if (!resp.ok) {
+        const errJson = await resp.json().catch(() => ({}));
+        throw new Error(errJson.detail || `Import failed with HTTP ${resp.status}`);
+      }
+      const data: InvestigateResponse = await resp.json();
+      setMode("custom");
+      setCaseId("imported_agency_series");
+      setPointA(data.request.primary_point);
+      setPointB(null);
+      setWindowRange([data.request.start_year, data.request.end_year]);
+      setResult(data);
+      setShowImportModal(false);
+    } catch (err) {
+      setError((err as Error).message || "Failed to parse uploaded time series.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const activeMeta = parameters[parameter] ?? result?.response.metadata;
   const activeStep = !pointA ? 2 : result ? 3 : 2;
   const dataStatus = result?.response.data_status;
@@ -281,12 +400,12 @@ export default function App() {
                 <Satellite className="h-5 w-5 text-cyan-300" />
               </div>
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <h1 className="text-lg font-bold tracking-tight text-white sm:text-xl">
                     TerraShift
                   </h1>
                   <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-cyan-300">
-                    NASA Earth System Trend Detective
+                    NASA · CSA · KNMI · NOAA Trend Detective
                   </span>
                 </div>
                 <p className="text-xs text-slate-400">
@@ -295,7 +414,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* Status & Dossier Trigger */}
+            {/* Status, Partner Hub, Importer & Dossier Triggers */}
             <div className="flex flex-wrap items-center gap-2">
               {dataStatus === "cache" && (
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
@@ -304,7 +423,7 @@ export default function App() {
               )}
               {dataStatus === "live" && (
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-medium text-cyan-300">
-                  <Wifi className="h-3.5 w-3.5" /> Live NASA POWER API
+                  <Wifi className="h-3.5 w-3.5" /> Live Agency Data
                 </span>
               )}
               {dataStatus === "offline_fallback" && (
@@ -312,6 +431,33 @@ export default function App() {
                   <WifiOff className="h-3.5 w-3.5" /> Offline Cache Fallback
                 </span>
               )}
+
+              <button
+                type="button"
+                onClick={() => setShowPartnerHub((s) => !s)}
+                className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                  showPartnerHub
+                    ? "border-cyan-400 bg-cyan-500/20 text-cyan-200"
+                    : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
+                }`}
+              >
+                <Globe2 className="h-3.5 w-3.5 text-cyan-400" />
+                NASA / CSA / Partner Hub
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!importText) {
+                    setImportText(buildSampleGiovanniCsv());
+                  }
+                  setShowImportModal(true);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-500/40 bg-indigo-500/15 px-3 py-2 text-xs font-semibold text-indigo-200 transition hover:bg-indigo-500/25"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Import Giovanni / KNMI CSV
+              </button>
 
               <button
                 type="button"
@@ -328,8 +474,8 @@ export default function App() {
           {/* 3-Step Detective Progress Strip */}
           <div className="grid grid-cols-1 gap-2 border-t border-slate-800/80 pt-3 sm:grid-cols-3">
             {[
-              { step: 1, title: "1. Pick a Mystery", desc: "Load a Case File or choose a Plain-English Question" },
-              { step: 2, title: "2. Place Region Markers", desc: "Click Marker A (primary) & optional Marker B (teleconnection)" },
+              { step: 1, title: "1. Pick a Mystery", desc: "Load a Case File, Plain-English Question, or Giovanni/KNMI CSV" },
+              { step: 2, title: "2. Place Region Markers", desc: "Click Marker A & optional Marker B on the Mapbox/Satellite map" },
               { step: 3, title: "3. Uncover & Verify", desc: "Strip STL seasonality, test window length, export Dossier" },
             ].map((item) => {
               const active = activeStep === item.step;
@@ -352,7 +498,7 @@ export default function App() {
             })}
           </div>
 
-          {/* Earth Detective Control Bar: Case Files + Plain-English Question Picker */}
+          {/* Earth Detective Control Bar: 6 Case Files + Plain-English Question Picker */}
           <div className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-1.5">
@@ -366,6 +512,7 @@ export default function App() {
                       key={c.case_id}
                       type="button"
                       onClick={() => handleSelectCase(c)}
+                      title={`${c.title} (${c.mission_label})`}
                       className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
                         selected
                           ? "bg-cyan-500 text-slate-950 shadow-sm shadow-cyan-500/30"
@@ -479,6 +626,108 @@ export default function App() {
               </div>
             )}
           </div>
+
+          {/* Multi-Agency NASA / NOAA / KNMI / CSA Partner Data & Resource Hub */}
+          {showPartnerHub && partnerIntel && (
+            <div className="space-y-3 rounded-xl border border-cyan-500/30 bg-slate-950/90 p-4 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <Globe2 className="h-4 w-4 text-cyan-400" />
+                  <span className="font-bold text-white">
+                    Multi-Agency Satellite &amp; Partner Telemetry Hub — {pointA?.name} (
+                    {partnerIntel.coordinates.lat.toFixed(2)}°, {partnerIntel.coordinates.lon.toFixed(2)}°)
+                  </span>
+                </div>
+                {intelLoading && (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-cyan-300">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Querying NASA CMR, AppEEARS &amp; CSA GeoMet...
+                  </span>
+                )}
+              </div>
+
+              {/* Live API Telemetry Strip: NASA CMR + AppEEARS + CSA GeoMet */}
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
+                  <p className="font-semibold text-cyan-300">
+                    Live NASA CMR Satellite Granules (SWOT / SeaWiFS / EOS)
+                  </p>
+                  <div className="mt-1.5 space-y-1.5">
+                    {partnerIntel.cmr_collections.slice(0, 3).map((c) => (
+                      <div key={c.short_name} className="rounded bg-slate-950/70 p-1.5">
+                        <p className="font-mono text-[11px] font-bold text-white">{c.short_name}</p>
+                        <p className="text-[11px] text-slate-400 line-clamp-1">{c.title}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
+                  <p className="font-semibold text-emerald-300">
+                    Live NASA AppEEARS Compatible Products
+                  </p>
+                  <div className="mt-1.5 space-y-1.5">
+                    {partnerIntel.appeears_products.slice(0, 3).map((p) => (
+                      <div key={p.product_id} className="rounded bg-slate-950/70 p-1.5">
+                        <p className="font-mono text-[11px] font-bold text-white">
+                          {p.product_id} ({p.platform} · {p.resolution})
+                        </p>
+                        <p className="text-[11px] text-slate-400 line-clamp-1">{p.description}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
+                  <p className="font-semibold text-amber-300">
+                    CSA / Geo.ca MSC GeoMet &amp; NOAA CDO Status
+                  </p>
+                  <div className="mt-1.5 space-y-1.5">
+                    {partnerIntel.csa_geomet_stations.length > 0 ? (
+                      partnerIntel.csa_geomet_stations.slice(0, 2).map((st, idx) => (
+                        <div key={`${st.station_id}-${idx}`} className="rounded bg-slate-950/70 p-1.5">
+                          <p className="font-mono text-[11px] font-bold text-white">
+                            {st.station_name} ({st.province})
+                          </p>
+                          <p className="text-[11px] text-slate-400">{st.sample_metric}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded bg-slate-950/70 p-2 text-[11px] text-slate-300">
+                        Select <strong>CSA SWOT &amp; RCM Arctic (Case 6)</strong> or click any Canadian basin to query live MSC GeoMet hydrometric gauges.
+                      </div>
+                    )}
+                    <p className="text-[10px] text-slate-400">{partnerIntel.noaa_cdo_status}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Coordinate-Parameterized Deep Links across all 3 Agency Categories */}
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {partnerIntel.deep_links.map((link) => (
+                  <a
+                    key={link.id}
+                    href={link.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="group flex flex-col justify-between rounded-lg border border-slate-800 bg-slate-900/60 p-2.5 transition hover:border-cyan-500/50 hover:bg-slate-900"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-300">
+                          {link.agency}
+                        </span>
+                        <ExternalLink className="h-3 w-3 text-slate-500 group-hover:text-cyan-300" />
+                      </div>
+                      <p className="mt-1 font-semibold text-slate-100 group-hover:text-cyan-200">
+                        {link.title}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-slate-400">{link.description}</p>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
         </header>
 
         {error && (
@@ -493,7 +742,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Dual Teleconnection SplitMap */}
+        {/* Dual Teleconnection SplitMap (Mapbox + Satellite + Reverse Geocoding) */}
         <SplitMap
           parameter={parameter}
           pointA={pointA}
@@ -511,7 +760,7 @@ export default function App() {
           fitVersion={fitVersion}
         />
 
-        {/* Sprint 4: Decomposition Lab & Detective Verdict Scorecard */}
+        {/* Decomposition Lab & Detective Verdict Scorecard */}
         {result && pointA && (
           <TrendLab
             investigation={result}
@@ -529,6 +778,10 @@ export default function App() {
             <div className="max-w-4xl">
               <p className="font-semibold text-cyan-200">{result.response.detective_brief.verdict_headline}</p>
               <p className="mt-0.5 text-slate-400">{result.response.detective_brief.physical_mechanism}</p>
+              <p className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500">
+                <BookOpen className="h-3.5 w-3.5 text-cyan-400" />
+                <span>Reference: {result.response.detective_brief.reference}</span>
+              </p>
             </div>
             <button
               type="button"
@@ -538,6 +791,137 @@ export default function App() {
               <FileText className="h-3.5 w-3.5" />
               Open Full Field Dossier
             </button>
+          </div>
+        )}
+
+        {/* Universal Multi-Agency CSV / ASCII / KNMI Importer Modal */}
+        {showImportModal && (
+          <div className="fixed inset-0 z-[900] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-900 p-5 text-xs shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white">
+                    Import External Space Agency Time-Series (Giovanni · GES DISC · AppEEARS · KNMI · NOAA CDO)
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Upload or paste monthly CSV, ASCII Data Rods, or KNMI 13-column (.dat) files to run STL decomposition &amp; Mann-Kendall tests.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowImportModal(false)}
+                  className="rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImportRegionName("Mississippi Delta Plume (SeaWiFS / Giovanni)");
+                    setImportUnit("mg/m³");
+                    setImportSourceHint("NASA Giovanni");
+                    setImportText(buildSampleGiovanniCsv());
+                  }}
+                  className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-1 font-medium text-cyan-200 hover:bg-cyan-500/20"
+                >
+                  Load Sample NASA Giovanni / SeaWiFS CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImportRegionName("Mackenzie Delta Gauge (KNMI / CSA Hydrometric)");
+                    setImportUnit("m");
+                    setImportSourceHint("KNMI Climate Explorer");
+                    setImportText(buildSampleKnmiDat());
+                  }}
+                  className="rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-2.5 py-1 font-medium text-indigo-200 hover:bg-indigo-500/20"
+                >
+                  Load Sample KNMI / CSA Hydrometric (.dat)
+                </button>
+                <label className="cursor-pointer rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 font-medium text-slate-200 hover:bg-slate-700">
+                  Upload Local File (.csv / .dat / .txt)
+                  <input
+                    type="file"
+                    accept=".csv,.dat,.txt,.asc"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setImportRegionName(file.name.replace(/\.[^.]+$/, ""));
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        setImportText(String(reader.result || ""));
+                      };
+                      reader.readAsText(file);
+                    }}
+                  />
+                </label>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] text-slate-400">Region / Station Label</span>
+                  <input
+                    type="text"
+                    value={importRegionName}
+                    onChange={(e) => setImportRegionName(e.target.value)}
+                    className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-slate-100"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] text-slate-400">Physical Unit</span>
+                  <input
+                    type="text"
+                    value={importUnit}
+                    onChange={(e) => setImportUnit(e.target.value)}
+                    className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-slate-100"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] text-slate-400">Agency Format</span>
+                  <select
+                    value={importSourceHint}
+                    onChange={(e) => setImportSourceHint(e.target.value)}
+                    className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-slate-100"
+                  >
+                    <option value="auto">Auto-Detect Format</option>
+                    <option value="NASA Giovanni">NASA Giovanni CSV</option>
+                    <option value="NASA GES DISC Hydrology">GES DISC Hydrology ASCII/CSV</option>
+                    <option value="NASA AppEEARS">NASA AppEEARS CSV</option>
+                    <option value="KNMI Climate Explorer">KNMI Climate Explorer (.dat)</option>
+                    <option value="NOAA CDO">NOAA Climate Data Online CSV</option>
+                  </select>
+                </label>
+              </div>
+
+              <textarea
+                rows={8}
+                value={importText}
+                onChange={(e) => setImportText(e.target.value)}
+                placeholder="Paste Giovanni CSV (YYYY-MM,value) or KNMI 13-column table here..."
+                className="mt-3 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 font-mono text-[11px] text-slate-200 outline-none focus:border-cyan-400"
+              />
+
+              <div className="mt-3 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowImportModal(false)}
+                  className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-300 hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRunImportedSeries}
+                  className="rounded-lg bg-cyan-500 px-4 py-1.5 font-bold text-slate-950 hover:bg-cyan-400"
+                >
+                  Decompose &amp; Analyze Series
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
