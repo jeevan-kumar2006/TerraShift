@@ -1,0 +1,340 @@
+"""Statistical and STL seasonal decomposition engine for TerraShift."""
+
+from __future__ import annotations
+
+import math
+from typing import Any
+
+import numpy as np
+import pandas as pd
+from scipy.stats import linregress, norm, pearsonr, t as student_t
+from statsmodels.tsa.seasonal import STL
+
+
+def _clean_float(val: float | int | np.floating | None, digits: int = 4) -> float | None:
+    """Convert numpy/float values to finite rounded Python floats or None."""
+    if val is None:
+        return None
+    f = float(val)
+    if not math.isfinite(f):
+        return None
+    return round(f, digits)
+
+
+def _clean_array(arr: np.ndarray | list[float], digits: int = 4) -> list[float | None]:
+    """Round an array of floats and sanitize non-finite entries."""
+    return [_clean_float(v, digits) for v in arr]
+
+
+def _prepare_series(timestamps: list[str], values: list[float | None]) -> tuple[list[str], np.ndarray]:
+    """Validate, parse monthly timestamps, replace fill values, and linearly interpolate gaps."""
+    if len(timestamps) != len(values):
+        raise ValueError("timestamps and values must have identical lengths.")
+    if len(timestamps) < 24:
+        raise ValueError("At least 24 monthly observations are required for STL decomposition.")
+
+    parsed_dates = pd.to_datetime(timestamps, format="%Y-%m", errors="coerce")
+    if parsed_dates.isna().any():
+        parsed_dates = pd.to_datetime(timestamps, errors="coerce")
+    if parsed_dates.isna().any():
+        raise ValueError("All timestamps must be valid YYYY-MM date strings.")
+
+    clean_vals = []
+    for v in values:
+        if v is None:
+            clean_vals.append(np.nan)
+        else:
+            fv = float(v)
+            if not math.isfinite(fv) or fv <= -990.0:
+                clean_vals.append(np.nan)
+            else:
+                clean_vals.append(fv)
+
+    s = pd.Series(clean_vals, index=parsed_dates, dtype=float).sort_index()
+    if s.notna().sum() < 12:
+        raise ValueError("Time series has too few valid observations.")
+
+    s = s.interpolate(method="linear", limit_direction="both")
+    if s.isna().any():
+        raise ValueError("Unable to interpolate missing observations in time series.")
+
+    clean_ts = [dt.strftime("%Y-%m") for dt in s.index]
+    return clean_ts, s.to_numpy(dtype=float)
+
+
+def mann_kendall_test(y: np.ndarray, variant: str = "standard") -> dict[str, Any]:
+    """
+    Perform non-parametric Mann-Kendall trend test with tie correction.
+    Optionally applies Hamed-Rao (1998) autocorrelation variance modification.
+    """
+    arr = np.asarray(y, dtype=float)
+    n = len(arr)
+    if n < 4:
+        return {"tau": 0.0, "z_score": 0.0, "p_value": 1.0, "is_significant": False}
+
+    # Compute S statistic using upper-triangular pairwise differences
+    diff = arr[None, :] - arr[:, None]
+    tri_idx = np.triu_indices(n, k=1)
+    s_stat = float(np.sum(np.sign(diff[tri_idx])))
+
+    # Tie correction for variance
+    _, counts = np.unique(arr, return_counts=True)
+    tie_counts = counts[counts > 1]
+    tie_term = float(np.sum(tie_counts * (tie_counts - 1) * (2 * tie_counts + 5)))
+    var_s = (n * (n - 1) * (2 * n + 5) - tie_term) / 18.0
+
+    # Optional Hamed-Rao autocorrelation correction
+    if variant == "hamed_rao" and var_s > 0.0:
+        slope = sens_slope(arr)["sens_slope_per_month"]
+        detrended = arr - slope * np.arange(n, dtype=float)
+        ranks = pd.Series(detrended).rank(method="average").to_numpy(dtype=float)
+        ranks_centered = ranks - np.mean(ranks)
+        denom = float(np.sum(ranks_centered ** 2))
+        if denom > 0.0:
+            n_s_factor = 1.0
+            max_lag = min(n - 2, max(1, n // 3))
+            z_crit = norm.ppf(0.975)
+            for lag in range(1, max_lag + 1):
+                acf_k = float(np.sum(ranks_centered[:-lag] * ranks_centered[lag:]) / denom)
+                # Only include statistically significant lag autocorrelations
+                se_acf = 1.0 / math.sqrt(n)
+                if abs(acf_k) > z_crit * se_acf:
+                    n_s_factor += (2.0 / (n * (n - 1) * (n - 2))) * (n - lag) * (n - lag - 1) * (n - lag - 2) * acf_k
+            if n_s_factor > 0.1:
+                var_s *= n_s_factor
+
+    if var_s <= 0.0:
+        return {"tau": 0.0, "z_score": 0.0, "p_value": 1.0, "is_significant": False}
+
+    if s_stat > 0:
+        z_score = (s_stat - 1.0) / math.sqrt(var_s)
+    elif s_stat < 0:
+        z_score = (s_stat + 1.0) / math.sqrt(var_s)
+    else:
+        z_score = 0.0
+
+    p_value = float(2.0 * (1.0 - norm.cdf(abs(z_score))))
+    denom_tau = 0.5 * n * (n - 1)
+    tau = float(s_stat / denom_tau) if denom_tau > 0 else 0.0
+
+    return {
+        "tau": tau,
+        "z_score": float(z_score),
+        "p_value": p_value,
+        "is_significant": bool(p_value < 0.05),
+    }
+
+
+def sens_slope(y: np.ndarray) -> dict[str, float]:
+    """Compute Theil-Sen median slope in units per month, year, and decade."""
+    arr = np.asarray(y, dtype=float)
+    n = len(arr)
+    if n < 2:
+        return {"sens_slope_per_month": 0.0, "sens_slope_per_year": 0.0, "sens_slope_per_decade": 0.0}
+
+    i_idx, j_idx = np.triu_indices(n, k=1)
+    slopes = (arr[j_idx] - arr[i_idx]) / (j_idx - i_idx)
+    slope_month = float(np.median(slopes))
+    slope_year = slope_month * 12.0
+    slope_decade = slope_year * 10.0
+    return {
+        "sens_slope_per_month": slope_month,
+        "sens_slope_per_year": slope_year,
+        "sens_slope_per_decade": slope_decade,
+    }
+
+
+def estimate_years_to_significance(
+    n: int,
+    slope_per_year: float,
+    resid_std: float,
+    is_significant: bool,
+) -> int:
+    """
+    Estimate additional years of monthly observations required at the observed slope
+    and residual variance to reach 95% two-sided confidence (alpha=0.05).
+    Returns 0 if already significant, or 99 (capped) for near-zero flat slopes.
+    """
+    if is_significant:
+        return 0
+    if abs(slope_per_year) < 1e-7 or resid_std < 0.0:
+        return 99
+    if resid_std <= 1e-12:
+        return 1
+
+    max_months = 1200  # 100 years cap
+    if n >= max_months:
+        return 99
+
+    total_n_arr = np.arange(n + 1, max_months + 1, dtype=float)
+    s_xx = (total_n_arr * (total_n_arr ** 2 - 1.0)) / 1728.0
+    t_stats = abs(slope_per_year) * np.sqrt(s_xx) / resid_std
+    t_crits = student_t.ppf(0.975, df=total_n_arr - 2.0)
+    hits = np.flatnonzero(t_stats >= t_crits)
+    if len(hits) > 0:
+        target_n = int(total_n_arr[hits[0]])
+        return int(math.ceil((target_n - n) / 12.0))
+
+    return 99
+
+
+def _analyze_single(timestamps: list[str], values: list[float | None], mk_variant: str = "standard") -> dict[str, Any]:
+    """Run STL decomposition, Mann-Kendall, Sen's slope, OLS t-test, and horizon on one series."""
+    clean_ts, raw = _prepare_series(timestamps, values)
+    n = len(raw)
+
+    # 1. STL Seasonal Decomposition (period=12)
+    idx = pd.to_datetime(clean_ts, format="%Y-%m")
+    pd_series = pd.Series(raw, index=idx)
+    stl_res = STL(pd_series, period=12, robust=True).fit()
+    seasonal_cycle = stl_res.seasonal.to_numpy(dtype=float)
+
+    deseasonalized = raw - seasonal_cycle
+    deseasonalized_anomalies = deseasonalized - float(np.mean(deseasonalized))
+
+    raw_var = float(np.var(raw))
+    anom_var = float(np.var(deseasonalized_anomalies))
+    if raw_var > 1e-12:
+        variance_reduction_pct = max(0.0, (1.0 - (anom_var / raw_var)) * 100.0)
+    else:
+        variance_reduction_pct = 0.0
+
+    seasonal_amplitude = float((np.max(seasonal_cycle) - np.min(seasonal_cycle)) / 2.0)
+
+    # Raw Mann-Kendall p-value for demonstrating why stripping seasonality matters
+    raw_mk = mann_kendall_test(raw, variant=mk_variant)
+
+    # 2. Non-parametric Mann-Kendall & Sen's slope on deseasonalized anomalies
+    mk_res = mann_kendall_test(deseasonalized_anomalies, variant=mk_variant)
+    sen_res = sens_slope(deseasonalized_anomalies)
+
+    # 3. Parametric OLS Linear Regression & Student's t-test with 95% confidence band
+    x = np.arange(n, dtype=float) / 12.0
+    if float(np.std(deseasonalized_anomalies)) < 1e-12:
+        ols_slope = 0.0
+        ols_intercept = 0.0
+        t_test_p_value = 1.0
+        trend_line = np.zeros(n, dtype=float)
+        ci_upper = np.zeros(n, dtype=float)
+        ci_lower = np.zeros(n, dtype=float)
+        resid_std = 0.0
+    else:
+        reg = linregress(x, deseasonalized_anomalies)
+        ols_slope = float(reg.slope)
+        ols_intercept = float(reg.intercept)
+        t_test_p_value = float(reg.pvalue)
+        trend_line = ols_intercept + ols_slope * x
+
+        residuals = deseasonalized_anomalies - trend_line
+        resid_std = math.sqrt(float(np.sum(residuals ** 2)) / max(1, n - 2))
+        x_mean = float(np.mean(x))
+        s_xx = float(np.sum((x - x_mean) ** 2))
+        t_crit = float(student_t.ppf(0.975, df=max(1, n - 2)))
+        margin = t_crit * resid_std * np.sqrt((1.0 / n) + ((x - x_mean) ** 2) / max(s_xx, 1e-12))
+        ci_upper = trend_line + margin
+        ci_lower = trend_line - margin
+
+    # 4. Years-to-significance horizon calculation
+    # Use Sen's slope (or OLS slope if Sen's slope is degenerate while OLS is non-zero)
+    effective_slope = sen_res["sens_slope_per_year"]
+    if abs(effective_slope) < 1e-7 and abs(ols_slope) >= 1e-7:
+        effective_slope = ols_slope
+
+    years_needed = estimate_years_to_significance(
+        n=n,
+        slope_per_year=effective_slope,
+        resid_std=resid_std,
+        is_significant=mk_res["is_significant"],
+    )
+
+    series_dict = {
+        "timestamps": clean_ts,
+        "raw_values": _clean_array(raw, 4),
+        "seasonal_cycle": _clean_array(seasonal_cycle, 4),
+        "deseasonalized_anomalies": _clean_array(deseasonalized_anomalies, 4),
+        "trend_line": _clean_array(trend_line, 4),
+        "ci_upper": _clean_array(ci_upper, 4),
+        "ci_lower": _clean_array(ci_lower, 4),
+    }
+
+    stats_dict = {
+        "mann_kendall_tau": _clean_float(mk_res["tau"], 4),
+        "z_score": _clean_float(mk_res["z_score"], 4),
+        "p_value": _clean_float(mk_res["p_value"], 6),
+        "t_test_p_value": _clean_float(t_test_p_value, 6),
+        "raw_p_value": _clean_float(raw_mk["p_value"], 6),
+        "is_significant": bool(mk_res["is_significant"]),
+        "sens_slope_per_year": _clean_float(sen_res["sens_slope_per_year"], 4),
+        "sens_slope_per_decade": _clean_float(sen_res["sens_slope_per_decade"], 4),
+        "ols_slope_per_year": _clean_float(ols_slope, 4),
+        "years_to_significance": years_needed,
+        "variance_reduction_pct": _clean_float(variance_reduction_pct, 1),
+        "seasonal_amplitude": _clean_float(seasonal_amplitude, 4),
+        "observation_months": int(n),
+        "observation_years": _clean_float(n / 12.0, 1),
+        "mk_variant": mk_variant,
+    }
+
+    return {"series": series_dict, "stats": stats_dict, "_raw_anomalies": deseasonalized_anomalies}
+
+
+def analyze_series(
+    timestamps: list[str],
+    values: list[float | None],
+    comparison_values: list[float | None] | None = None,
+    comparison_timestamps: list[str] | None = None,
+    mk_variant: str = "standard",
+) -> dict[str, Any]:
+    """
+    Run full STL decomposition, Mann-Kendall, Sen's slope, OLS t-test,
+    years-to-significance, and optional teleconnection cross-correlation.
+    """
+    primary = _analyze_single(timestamps, values, mk_variant=mk_variant)
+
+    teleconnection: dict[str, Any] = {
+        "enabled": False,
+        "comparison_anomalies": [],
+        "comparison_sens_slope_per_year": None,
+        "comparison_sens_slope_per_decade": None,
+        "comparison_is_significant": False,
+        "comparison_p_value": None,
+        "cross_correlation_r": None,
+        "cross_correlation_p_value": None,
+    }
+    comparison_series = None
+    comparison_stats = None
+
+    if comparison_values is not None and len(comparison_values) >= 24:
+        comp_ts = comparison_timestamps if comparison_timestamps is not None else timestamps
+        comp = _analyze_single(comp_ts, comparison_values, mk_variant=mk_variant)
+        comparison_series = comp["series"]
+        comparison_stats = comp["stats"]
+
+        # Align on common timestamps for Pearson correlation
+        s_a = pd.Series(primary["_raw_anomalies"], index=primary["series"]["timestamps"])
+        s_b = pd.Series(comp["_raw_anomalies"], index=comp["series"]["timestamps"])
+        aligned = pd.concat([s_a, s_b], axis=1, join="inner").dropna()
+
+        if len(aligned) >= 6 and float(aligned.iloc[:, 0].std()) > 1e-12 and float(aligned.iloc[:, 1].std()) > 1e-12:
+            r_val, r_p = pearsonr(aligned.iloc[:, 0].to_numpy(), aligned.iloc[:, 1].to_numpy())
+        else:
+            r_val, r_p = 0.0, 1.0
+
+        teleconnection = {
+            "enabled": True,
+            "comparison_anomalies": comp["series"]["deseasonalized_anomalies"],
+            "comparison_sens_slope_per_year": comp["stats"]["sens_slope_per_year"],
+            "comparison_sens_slope_per_decade": comp["stats"]["sens_slope_per_decade"],
+            "comparison_is_significant": comp["stats"]["is_significant"],
+            "comparison_p_value": comp["stats"]["p_value"],
+            "cross_correlation_r": _clean_float(r_val, 4),
+            "cross_correlation_p_value": _clean_float(r_p, 6),
+        }
+
+    return {
+        "primary_series": primary["series"],
+        "primary_stats": primary["stats"],
+        "teleconnection": teleconnection,
+        "comparison_series": comparison_series,
+        "comparison_stats": comparison_stats,
+    }
