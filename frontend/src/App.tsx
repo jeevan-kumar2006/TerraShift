@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import SplitMap from "./SplitMap";
 import TrendLab from "./TrendLab";
+import DossierModal from "./DossierModal";
 import type {
   GeoPoint,
   InvestigateResponse,
@@ -540,19 +541,14 @@ export default function App() {
           </div>
         )}
 
-        {dossierOpen && result && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-            <div className="rounded-2xl border border-slate-700 bg-slate-900 p-6 text-sm">
-              <p>Dossier preview loading...</p>
-              <button
-                type="button"
-                onClick={() => setDossierOpen(false)}
-                className="mt-3 rounded bg-cyan-500 px-3 py-1 text-slate-950"
-              >
-                Close
-              </button>
-            </div>
-          </div>
+        {dossierOpen && result && pointA && (
+          <DossierModal
+            investigation={result}
+            pointA={pointA}
+            pointB={pointB}
+            windowRange={windowRange}
+            onClose={() => setDossierOpen(false)}
+          />
         )}
       </div>
     </div>
