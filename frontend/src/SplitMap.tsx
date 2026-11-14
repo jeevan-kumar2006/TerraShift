@@ -182,9 +182,10 @@ export default function SplitMap({
 }: SplitMapProps) {
   const [styleMode, setStyleMode] = useState<MapStyleMode>("dark");
   const [mapboxToken, setMapboxToken] = useState<string>(() => {
-    if (ENV_MAPBOX_TOKEN) return ENV_MAPBOX_TOKEN;
+    if (ENV_MAPBOX_TOKEN && ENV_MAPBOX_TOKEN.startsWith("pk.")) return ENV_MAPBOX_TOKEN;
     try {
-      return localStorage.getItem(STORAGE_KEY) || "";
+      const saved = localStorage.getItem(STORAGE_KEY) || "";
+      return saved.startsWith("pk.") ? saved : "";
     } catch {
       return "";
     }
@@ -192,8 +193,9 @@ export default function SplitMap({
   const [showTokenEditor, setShowTokenEditor] = useState<boolean>(false);
   const [tokenDraft, setTokenDraft] = useState<string>(mapboxToken);
   const [mapboxError, setMapboxError] = useState<boolean>(false);
+  const [tokenValidationError, setTokenValidationError] = useState<string | null>(null);
 
-  const useMapboxTiles = Boolean(mapboxToken.trim()) && !mapboxError;
+  const useMapboxTiles = mapboxToken.trim().startsWith("pk.") && !mapboxError;
 
   const tileConfig = useMemo(() => {
     if (useMapboxTiles) {
@@ -251,6 +253,15 @@ export default function SplitMap({
 
   const handleSaveToken = () => {
     const cleaned = tokenDraft.trim();
+    if (cleaned && !cleaned.startsWith("pk.")) {
+      setTokenValidationError(
+        cleaned.startsWith("sk.")
+          ? "Secret Mapbox tokens (sk.*) must never be used in the browser. Enter a public token starting with pk."
+          : "Invalid token format: Mapbox browser tokens must start with pk."
+      );
+      return;
+    }
+    setTokenValidationError(null);
     setMapboxToken(cleaned);
     setMapboxError(false);
     try {
@@ -407,27 +418,35 @@ export default function SplitMap({
 
       {/* Optional Mapbox API Token Bar */}
       {showTokenEditor && (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-950 px-4 py-2 text-xs">
-          <span className="text-slate-300">
-            Enter a Mapbox public token (<code className="text-cyan-300">pk.eyJ...</code>) or set{" "}
-            <code className="text-cyan-300">VITE_MAPBOX_TOKEN</code> to enable Mapbox Static Tiles &amp; Reverse Geocoding:
-          </span>
-          <div className="flex items-center gap-2">
-            <input
-              type="password"
-              value={tokenDraft}
-              onChange={(e) => setTokenDraft(e.target.value)}
-              placeholder="pk.eyJ1Ijoi..."
-              className="w-64 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 font-mono text-xs text-slate-100 outline-none focus:border-cyan-400"
-            />
-            <button
-              type="button"
-              onClick={handleSaveToken}
-              className="rounded-lg bg-cyan-500 px-3 py-1 font-bold text-slate-950 hover:bg-cyan-400"
-            >
-              Apply
-            </button>
+        <div className="border-b border-slate-800 bg-slate-950 px-4 py-2 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-slate-300">
+              Enter a Mapbox public token (<code className="text-cyan-300">pk.eyJ...</code>) or set{" "}
+              <code className="text-cyan-300">VITE_MAPBOX_TOKEN</code> to enable Mapbox Static Tiles &amp; Reverse Geocoding:
+            </span>
+            <div className="flex items-center gap-2">
+              <input
+                type="password"
+                value={tokenDraft}
+                onChange={(e) => {
+                  setTokenDraft(e.target.value);
+                  if (tokenValidationError) setTokenValidationError(null);
+                }}
+                placeholder="pk.eyJ1Ijoi..."
+                className="w-64 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 font-mono text-xs text-slate-100 outline-none focus:border-cyan-400"
+              />
+              <button
+                type="button"
+                onClick={handleSaveToken}
+                className="rounded-lg bg-cyan-500 px-3 py-1 font-bold text-slate-950 hover:bg-cyan-400"
+              >
+                Apply
+              </button>
+            </div>
           </div>
+          {tokenValidationError && (
+            <p className="mt-1.5 text-[11px] font-medium text-rose-400">{tokenValidationError}</p>
+          )}
         </div>
       )}
 

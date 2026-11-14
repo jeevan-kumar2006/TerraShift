@@ -1,6 +1,6 @@
 # TerraShift — Earth System Trend Detective
 
-**TerraShift** is a multi-agency Earth observation trend-detection and teleconnection laboratory built with an 8-file FastAPI + React vertical architecture. It strips strong seasonal cycles via **STL decomposition**, validates multi-decade climate shifts using **Mann-Kendall**, **Sen's slope**, and **Student's t-tests**, computes **Time-to-Significance horizons**, and integrates **Mapbox**, **NASA**, **NOAA**, **KNMI**, and **CSA (Canadian Space Agency)** data and resources.
+**TerraShift** is a multi-agency Earth observation trend-detection and regional comparison laboratory built with a FastAPI + React architecture. It enforces complete monthly indexing, strips strong seasonal cycles via **STL decomposition**, validates multi-decade climate shifts using **Mann-Kendall** (standard & Hamed-Rao), **Sen's slope** (with 95% CI), and **Student's t-tests**, computes **Estimated Additional Observation Periods**, and integrates **Mapbox / Leaflet**, **NASA POWER (MERRA-2 reanalysis & model-derived hydrology)**, **NASA CMR / AppEEARS discovery**, **NOAA CDO**, **KNMI**, and **CSA (Canadian Space Agency)** data and resources.
 
 ---
 
@@ -10,19 +10,22 @@
 TerraShift/
 ├── RULES.md                  # Global schema, statistical, and caching guardrails
 ├── backend/
-│   ├── main.py               # FastAPI endpoints (/api/cases, /api/investigate, /api/partner-intel, /api/import-series, /api/explain)
-│   ├── stats_engine.py       # STL decomposition (period=12), Mann-Kendall, Sen's slope, OLS t-test, r
-│   ├── nasa_service.py       # NASA POWER, NASA CMR, AppEEARS, CSA GeoMet, NOAA CDO, KNMI & Giovanni CSV parser
+│   ├── main.py               # FastAPI endpoints (/api/health, /api/status, /api/cases, /api/investigate, /api/partner-intel, /api/import-series, /api/explain)
+│   ├── stats_engine.py       # Monthly index + gap guard (<=3 mo), STL decomposition (period=12), Mann-Kendall, Sen's slope + 95% CI, OLS t-test, r
+│   ├── nasa_service.py       # NASA POWER (RE/AG community routing), CMR/AppEEARS/CSA/NOAA discovery, provenance & bounded fallback (<=500 km), CSV/KNMI parser
+│   ├── ai_explainer.py       # Modular deterministic & optional Gemini 2.5 Flash physical explanation engine (stats-grounded)
 │   ├── cases_cache.json      # 6 seeded Detective Case Files + live coordinate cache
 │   ├── requirements.txt
-│   └── tests/test_stats.py   # Pytest suite for synthetic trends, API endpoints, partner intel & CSV/KNMI importers
+│   └── tests/
+│       ├── test_stats.py           # Pytest suite for trends, Hamed-Rao, monthly indexing, provenance & importers
+│       └── test_api_integration.py # Integration tests for CORS, validation, window slicing & health/status
 └── frontend/
     └── src/
-        ├── App.tsx           # State orchestration, Partner Telemetry Hub & Giovanni/KNMI CSV Importer
-        ├── SplitMap.tsx      # Dual-region Mapbox / Satellite / Terrain map + Reverse Geocoding & MERRA-2 grid boxes
-        ├── TrendLab.tsx      # Raw / Deseasonalized / Teleconnection chart switcher, window slider & Scorecard
-        ├── DossierModal.tsx  # Physical mechanism synthesis & 1-page printable PDF Field Dossier
-        └── types.ts          # Shared TypeScript API contracts
+        ├── App.tsx           # State orchestration, 3-step workflow, Partner Telemetry Hub & Giovanni/KNMI CSV Importer
+        ├── SplitMap.tsx      # Dual-region Mapbox (pk.* validated) / Leaflet OSM / Satellite / Terrain map + Reverse Geocoding
+        ├── TrendLab.tsx      # Raw Monthly Data / Deseasonalized Trend Lab / Regional Anomaly Comparison, Provenance & Scorecard
+        ├── DossierModal.tsx  # Physical mechanism synthesis, provenance/limitations, printable Field Dossier & JSON report export
+        └── types.ts          # Shared TypeScript API & provenance contracts
 ```
 
 ---
@@ -62,7 +65,7 @@ TerraShift/
 ```bash
 # 1. Backend (FastAPI on :8000)
 pip install -r backend/requirements.txt
-python -m pytest -v backend/tests/test_stats.py
+python -m pytest -v backend/tests/test_stats.py backend/tests/test_api_integration.py
 cd backend
 python -m uvicorn main:app --reload --port 8000
 

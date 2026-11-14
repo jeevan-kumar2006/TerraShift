@@ -26,8 +26,17 @@ def _clean_array(arr: np.ndarray | list[float], digits: int = 4) -> list[float |
     return [_clean_float(v, digits) for v in arr]
 
 
-def _prepare_series(timestamps: list[str], values: list[float | None]) -> tuple[list[str], np.ndarray]:
-    """Validate, parse monthly timestamps, replace fill values, and linearly interpolate gaps."""
+MAX_INTERPOLATION_GAP_MONTHS = 3
+
+
+def _prepare_series(
+    timestamps: list[str], values: list[float | None]
+) -> tuple[list[str], np.ndarray, dict[str, Any]]:
+    """
+    Validate, parse monthly timestamps, construct a complete monthly index,
+    detect duplicate timestamps and missing months, reject gaps > 3 months,
+    and linearly interpolate short interior gaps.
+    """
     if len(timestamps) != len(values):
         raise ValueError("timestamps and values must have identical lengths.")
     if len(timestamps) < 24:
@@ -39,7 +48,9 @@ def _prepare_series(timestamps: list[str], values: list[float | None]) -> tuple[
     if parsed_dates.isna().any():
         raise ValueError("All timestamps must be valid YYYY-MM date strings.")
 
-    clean_vals = []
+    month_index = parsed_dates.to_period("M").to_timestamp()
+
+    clean_vals: list[float] = []
     for v in values:
         if v is None:
             clean_vals.append(np.nan)
@@ -50,16 +61,62 @@ def _prepare_series(timestamps: list[str], values: list[float | None]) -> tuple[
             else:
                 clean_vals.append(fv)
 
-    s = pd.Series(clean_vals, index=parsed_dates, dtype=float).sort_index()
-    if s.notna().sum() < 12:
+    raw_series = pd.Series(clean_vals, index=month_index, dtype=float).sort_index()
+    duplicate_timestamps_count = int(raw_series.index.duplicated().sum())
+    if duplicate_timestamps_count > 0:
+        raw_series = raw_series.groupby(level=0).mean()
+
+    first_valid = raw_series.first_valid_index()
+    last_valid = raw_series.last_valid_index()
+    if first_valid is None or last_valid is None:
         raise ValueError("Time series has too few valid observations.")
 
-    s = s.interpolate(method="linear", limit_direction="both")
-    if s.isna().any():
+    trimmed = raw_series.loc[first_valid:last_valid]
+    full_index = pd.date_range(start=first_valid, end=last_valid, freq="MS")
+    s_full = trimmed.reindex(full_index)
+
+    expected_months = int(len(s_full))
+    valid_months = int(s_full.notna().sum())
+    missing_months = int(expected_months - valid_months)
+    missing_pct = round((missing_months / expected_months) * 100.0, 2) if expected_months > 0 else 0.0
+
+    max_consecutive_missing = 0
+    current_run = 0
+    for is_na in s_full.isna().to_numpy():
+        if is_na:
+            current_run += 1
+            if current_run > max_consecutive_missing:
+                max_consecutive_missing = current_run
+        else:
+            current_run = 0
+
+    if expected_months < 24 or valid_months < 24:
+        raise ValueError("At least 24 valid monthly observations are required for STL decomposition.")
+
+    if max_consecutive_missing > MAX_INTERPOLATION_GAP_MONTHS:
+        raise ValueError(
+            f"Time series contains a missing gap of {max_consecutive_missing} consecutive months "
+            f"(maximum allowed linear interpolation gap is {MAX_INTERPOLATION_GAP_MONTHS} months)."
+        )
+
+    s_interp = s_full.interpolate(
+        method="linear", limit=MAX_INTERPOLATION_GAP_MONTHS, limit_direction="both"
+    )
+    if s_interp.isna().any():
         raise ValueError("Unable to interpolate missing observations in time series.")
 
-    clean_ts = [dt.strftime("%Y-%m") for dt in s.index]
-    return clean_ts, s.to_numpy(dtype=float)
+    clean_ts = [dt.strftime("%Y-%m") for dt in s_interp.index]
+    quality = {
+        "expected_months": expected_months,
+        "valid_months": valid_months,
+        "missing_months": missing_months,
+        "missing_pct": missing_pct,
+        "interpolated_months": missing_months,
+        "max_consecutive_missing": max_consecutive_missing,
+        "duplicate_timestamps_merged": duplicate_timestamps_count,
+        "max_interpolation_gap_limit": MAX_INTERPOLATION_GAP_MONTHS,
+    }
+    return clean_ts, s_interp.to_numpy(dtype=float), quality
 
 
 def mann_kendall_test(y: np.ndarray, variant: str = "standard") -> dict[str, Any]:
@@ -92,7 +149,7 @@ def mann_kendall_test(y: np.ndarray, variant: str = "standard") -> dict[str, Any
         denom = float(np.sum(ranks_centered ** 2))
         if denom > 0.0:
             n_s_factor = 1.0
-            max_lag = min(n - 2, max(1, n // 3))
+            max_lag = n - 1
             z_crit = norm.ppf(0.975)
             for lag in range(1, max_lag + 1):
                 acf_k = float(np.sum(ranks_centered[:-lag] * ranks_centered[lag:]) / denom)
@@ -126,21 +183,46 @@ def mann_kendall_test(y: np.ndarray, variant: str = "standard") -> dict[str, Any
 
 
 def sens_slope(y: np.ndarray) -> dict[str, float]:
-    """Compute Theil-Sen median slope in units per month, year, and decade."""
+    """Compute Theil-Sen median slope (month, year, decade) and non-parametric 95% confidence bounds."""
     arr = np.asarray(y, dtype=float)
     n = len(arr)
     if n < 2:
-        return {"sens_slope_per_month": 0.0, "sens_slope_per_year": 0.0, "sens_slope_per_decade": 0.0}
+        return {
+            "sens_slope_per_month": 0.0,
+            "sens_slope_per_year": 0.0,
+            "sens_slope_per_decade": 0.0,
+            "sens_slope_ci_lower": 0.0,
+            "sens_slope_ci_upper": 0.0,
+        }
 
     i_idx, j_idx = np.triu_indices(n, k=1)
-    slopes = (arr[j_idx] - arr[i_idx]) / (j_idx - i_idx)
+    slopes = np.sort((arr[j_idx] - arr[i_idx]) / (j_idx - i_idx))
     slope_month = float(np.median(slopes))
     slope_year = slope_month * 12.0
     slope_decade = slope_year * 10.0
+
+    # Sen (1968) non-parametric 95% confidence interval using Kendall variance
+    _, counts = np.unique(arr, return_counts=True)
+    tie_counts = counts[counts > 1]
+    tie_term = float(np.sum(tie_counts * (tie_counts - 1) * (2 * tie_counts + 5)))
+    var_s = max(0.0, (n * (n - 1) * (2 * n + 5) - tie_term) / 18.0)
+    total_pairs = len(slopes)
+    if var_s > 0.0 and total_pairs >= 2:
+        c_alpha = float(norm.ppf(0.975) * math.sqrt(var_s))
+        m1 = max(0, min(total_pairs - 1, int(math.floor((total_pairs - c_alpha) / 2.0))))
+        m2 = max(0, min(total_pairs - 1, int(math.ceil((total_pairs + c_alpha) / 2.0)) - 1))
+        ci_low_yr = float(slopes[m1]) * 12.0
+        ci_high_yr = float(slopes[m2]) * 12.0
+    else:
+        ci_low_yr = slope_year
+        ci_high_yr = slope_year
+
     return {
         "sens_slope_per_month": slope_month,
         "sens_slope_per_year": slope_year,
         "sens_slope_per_decade": slope_decade,
+        "sens_slope_ci_lower": ci_low_yr,
+        "sens_slope_ci_upper": ci_high_yr,
     }
 
 
@@ -179,8 +261,8 @@ def estimate_years_to_significance(
 
 
 def _analyze_single(timestamps: list[str], values: list[float | None], mk_variant: str = "standard") -> dict[str, Any]:
-    """Run STL decomposition, Mann-Kendall, Sen's slope, OLS t-test, and horizon on one series."""
-    clean_ts, raw = _prepare_series(timestamps, values)
+    """Run STL decomposition, Mann-Kendall, Sen's slope, OLS t-test, and observation-period power estimate."""
+    clean_ts, raw, quality = _prepare_series(timestamps, values)
     n = len(raw)
 
     # 1. STL Seasonal Decomposition (period=12)
@@ -266,13 +348,31 @@ def _analyze_single(timestamps: list[str], values: list[float | None], mk_varian
         "is_significant": bool(mk_res["is_significant"]),
         "sens_slope_per_year": _clean_float(sen_res["sens_slope_per_year"], 4),
         "sens_slope_per_decade": _clean_float(sen_res["sens_slope_per_decade"], 4),
+        "sens_slope_ci_lower": _clean_float(sen_res["sens_slope_ci_lower"], 4),
+        "sens_slope_ci_upper": _clean_float(sen_res["sens_slope_ci_upper"], 4),
         "ols_slope_per_year": _clean_float(ols_slope, 4),
         "years_to_significance": years_needed,
+        "estimated_additional_observation_years": years_needed,
         "variance_reduction_pct": _clean_float(variance_reduction_pct, 1),
         "seasonal_amplitude": _clean_float(seasonal_amplitude, 4),
         "observation_months": int(n),
         "observation_years": _clean_float(n / 12.0, 1),
         "mk_variant": mk_variant,
+        "valid_months": quality["valid_months"],
+        "missing_months": quality["missing_months"],
+        "missing_pct": quality["missing_pct"],
+        "interpolated_months": quality["interpolated_months"],
+        "max_consecutive_missing": quality["max_consecutive_missing"],
+        "duplicate_timestamps_merged": quality["duplicate_timestamps_merged"],
+        "ci_methodology": (
+            "Shaded band shows the 95% two-sided Student's t confidence interval around the OLS linear fit on STL "
+            "deseasonalized anomalies (assumes independent, homoscedastic normal residuals). Sen's slope 95% CI uses "
+            "the non-parametric Kendall rank variance approximation (Sen, 1968)."
+        ),
+        "horizon_assumptions": (
+            "Estimated Additional Observation Period is a theoretical statistical power calculation (not a climate forecast): "
+            "it assumes the observed linear slope, residual variance, and monthly independence persist at two-sided alpha = 0.05."
+        ),
     }
 
     return {"series": series_dict, "stats": stats_dict, "_raw_anomalies": deseasonalized_anomalies}

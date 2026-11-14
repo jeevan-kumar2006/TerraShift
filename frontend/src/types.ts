@@ -52,6 +52,26 @@ export interface AnalyzedSeries {
   ci_lower: (number | null)[];
 }
 
+export interface SeriesProvenance {
+  source_name: string;
+  collection: string;
+  parameter: string;
+  data_type: string;
+  dataset_tag: "live" | "cached" | "imported" | "synthetic" | "offline_fallback" | string;
+  units: string;
+  temporal_resolution: string;
+  spatial_resolution: string;
+  requested_lat: number;
+  requested_lon: number;
+  source_lat: number;
+  source_lon: number;
+  bounding_box: BoundingBox;
+  start_date: string;
+  end_date: string;
+  retrieval_status: string;
+  fallback_distance_km: number;
+}
+
 export interface SeriesStats {
   mann_kendall_tau: number;
   z_score: number;
@@ -61,12 +81,23 @@ export interface SeriesStats {
   is_significant: boolean;
   sens_slope_per_year: number;
   sens_slope_per_decade: number;
+  sens_slope_ci_lower?: number;
+  sens_slope_ci_upper?: number;
   ols_slope_per_year: number;
   years_to_significance: number;
+  estimated_additional_observation_years?: number;
   variance_reduction_pct: number;
   seasonal_amplitude: number;
   observation_months: number;
   observation_years: number;
+  valid_months?: number;
+  missing_months?: number;
+  missing_pct?: number;
+  interpolated_months?: number;
+  max_consecutive_missing?: number;
+  duplicate_timestamps_merged?: number;
+  ci_methodology?: string;
+  horizon_assumptions?: string;
   mk_variant: string;
 }
 
@@ -89,6 +120,8 @@ export interface DetectiveBrief {
   reference: string;
   biome_zone: string;
   ai_enhanced: boolean;
+  methodology_note?: string;
+  limitations_note?: string;
 }
 
 export interface InvestigateRequestPayload {
@@ -117,10 +150,13 @@ export interface InvestigateResponse {
   request: InvestigateRequestPayload;
   response: {
     metadata: ParameterMeta;
-    data_status: "live" | "cache" | "offline_fallback";
+    data_status: "live" | "cache" | "offline_fallback" | "imported" | "synthetic";
+    dataset_tag?: "live" | "cached" | "imported" | "synthetic" | "offline_fallback" | string;
     fallback_note: string | null;
     primary_bounding_box: BoundingBox;
     comparison_bounding_box: BoundingBox | null;
+    primary_provenance?: SeriesProvenance | null;
+    comparison_provenance?: SeriesProvenance | null;
     primary_series: AnalyzedSeries;
     primary_stats: SeriesStats;
     comparison_series: AnalyzedSeries | null;

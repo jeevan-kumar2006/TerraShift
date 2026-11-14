@@ -1,15 +1,16 @@
 # TerraShift — Global Project Rules & Contracts
 
-## 1. Architecture (8 Core Files)
+## 1. Architecture (Core Files)
 - `RULES.md` — Global rules, API schema contract, and statistical guardrails
-- `backend/main.py` — FastAPI API router (`/api/health`, `/api/cases`, `/api/parameters`, `/api/analyze`, `/api/investigate`, `/api/explain`)
-- `backend/stats_engine.py` — STL seasonal decomposition, Mann-Kendall, Sen's slope, OLS Student's t-test, time-to-significance horizon, Pearson cross-correlation
-- `backend/nasa_service.py` — NASA POWER monthly API client, parameter metadata registry, local JSON cache & nearest-point offline fallback
-- `backend/cases_cache.json` — 4 seeded multi-mission Detective Case Files + cached live responses
-- `frontend/src/App.tsx` — State orchestration & Earth Detective Control Bar
-- `frontend/src/SplitMap.tsx` — Interactive dual-region Leaflet map & teleconnection view
-- `frontend/src/TrendLab.tsx` — Raw / Deseasonalized / Teleconnection chart switcher & Verdict Scorecard
-- `frontend/src/DossierModal.tsx` — AI / physical synthesis brief & 1-page printable PDF Field Dossier
+- `backend/main.py` — FastAPI API router (`/api/health`, `/api/status`, `/api/cases`, `/api/parameters`, `/api/analyze`, `/api/investigate`, `/api/import-series`, `/api/partner-intel`, `/api/explain`)
+- `backend/stats_engine.py` — Complete monthly indexing, STL seasonal decomposition, Mann-Kendall (standard & Hamed-Rao), Sen's slope with 95% CI, OLS Student's t-test, Estimated Additional Observation Period, Pearson cross-correlation
+- `backend/nasa_service.py` — NASA POWER monthly API client (`RE`/`AG` community routing), parameter metadata & provenance builder, local JSON cache & bounded (`<= 500 km`) nearest-point fallback
+- `backend/ai_explainer.py` — Modular physical explanation engine (deterministic baseline + optional Gemini 2.5 Flash grounded strictly in computed stats)
+- `backend/cases_cache.json` — 6 seeded Detective Case Files + cached live responses
+- `frontend/src/App.tsx` — State orchestration, 3-step workflow guide, Partner Telemetry Hub & Giovanni/KNMI CSV Importer
+- `frontend/src/SplitMap.tsx` — Interactive dual-region Leaflet/Mapbox map & regional comparison view
+- `frontend/src/TrendLab.tsx` — Raw Monthly Data / Deseasonalized Trend Lab / Regional Anomaly Comparison switcher, Dataset Provenance & Data-Quality panel & Scorecard
+- `frontend/src/DossierModal.tsx` — AI / physical synthesis brief, provenance/limitations & 1-page printable PDF Field Dossier + self-contained JSON export
 
 ## 2. Deterministic Statistical & API Rules
 1. **Seasonal Decomposition First**: All trend significance evaluations MUST run on the deseasonalized anomaly series (`raw - seasonal_cycle`, centered at 0), never on raw seasonal data.

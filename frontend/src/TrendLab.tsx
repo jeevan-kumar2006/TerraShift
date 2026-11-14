@@ -173,7 +173,7 @@ export default function TrendLab({
                   : "text-slate-400 hover:text-slate-100"
               }`}
             >
-              1. Raw Satellite Series
+              1. Raw Monthly Data
             </button>
             <button
               type="button"
@@ -196,7 +196,7 @@ export default function TrendLab({
                   : "text-slate-400 hover:text-slate-100"
               }`}
             >
-              3. Teleconnection Overlay
+              3. Regional Anomaly Comparison
             </button>
           </div>
         </div>
@@ -580,6 +580,13 @@ export default function TrendLab({
             <p className="mt-0.5 text-[11px] text-slate-400">
               {metadata.unit}/yr · {dirInfo.label}
             </p>
+            {primary_stats.sens_slope_ci_lower !== undefined && primary_stats.sens_slope_ci_upper !== undefined && (
+              <p className="mt-1 font-mono text-[10px] text-slate-400">
+                95% CI: [{primary_stats.sens_slope_ci_lower >= 0 ? "+" : ""}
+                {primary_stats.sens_slope_ci_lower}, {primary_stats.sens_slope_ci_upper >= 0 ? "+" : ""}
+                {primary_stats.sens_slope_ci_upper}]
+              </p>
+            )}
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
@@ -595,51 +602,58 @@ export default function TrendLab({
         </div>
 
         {/* Non-Parametric & Parametric Statistical Grid */}
-        <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs">
-          <div>
-            <p className="text-[11px] text-slate-400">Mann-Kendall &tau;</p>
-            <p className="font-mono font-semibold text-slate-100">{primary_stats.mann_kendall_tau}</p>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <p className="text-[11px] text-slate-400">Mann-Kendall &tau;</p>
+              <p className="font-mono font-semibold text-slate-100">{primary_stats.mann_kendall_tau}</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-slate-400">Z-Score</p>
+              <p className="font-mono font-semibold text-slate-100">{primary_stats.z_score}</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-slate-400">Deseasonalized MK p</p>
+              <p
+                className={`font-mono font-bold ${
+                  primary_stats.is_significant ? "text-emerald-400" : "text-amber-300"
+                }`}
+              >
+                {formatPValue(primary_stats.p_value)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] text-slate-400">Student&apos;s t-test p</p>
+              <p className="font-mono font-semibold text-slate-100">
+                {formatPValue(primary_stats.t_test_p_value)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] text-slate-400">Raw Seasonal MK p</p>
+              <p className="font-mono font-semibold text-slate-300">
+                {formatPValue(primary_stats.raw_p_value)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] text-slate-400">STL Variance Stripped</p>
+              <p className="font-mono font-semibold text-cyan-300">
+                {primary_stats.variance_reduction_pct}%
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-[11px] text-slate-400">Z-Score</p>
-            <p className="font-mono font-semibold text-slate-100">{primary_stats.z_score}</p>
-          </div>
-          <div>
-            <p className="text-[11px] text-slate-400">Deseasonalized MK p</p>
-            <p
-              className={`font-mono font-bold ${
-                primary_stats.is_significant ? "text-emerald-400" : "text-amber-300"
-              }`}
-            >
-              {formatPValue(primary_stats.p_value)}
+          {!primary_stats.is_significant && (
+            <p className="mt-2 border-t border-slate-800/80 pt-2 text-[10px] leading-relaxed text-amber-200/80">
+              Note: p &ge; 0.05 indicates insufficient statistical evidence to reject the null hypothesis over this window—it does not prove the absence of physical change.
             </p>
-          </div>
-          <div>
-            <p className="text-[11px] text-slate-400">Student&apos;s t-test p</p>
-            <p className="font-mono font-semibold text-slate-100">
-              {formatPValue(primary_stats.t_test_p_value)}
-            </p>
-          </div>
-          <div>
-            <p className="text-[11px] text-slate-400">Raw Seasonal MK p</p>
-            <p className="font-mono font-semibold text-slate-300">
-              {formatPValue(primary_stats.raw_p_value)}
-            </p>
-          </div>
-          <div>
-            <p className="text-[11px] text-slate-400">STL Variance Stripped</p>
-            <p className="font-mono font-semibold text-cyan-300">
-              {primary_stats.variance_reduction_pct}%
-            </p>
-          </div>
+          )}
         </div>
 
-        {/* Time-to-Significance Horizon Progress Bar */}
+        {/* Estimated Additional Observation Period Progress Bar */}
         <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
           <div className="flex items-center justify-between text-xs">
             <span className="flex items-center gap-1.5 font-semibold text-slate-200">
               <Clock className="h-3.5 w-3.5 text-cyan-400" />
-              Time-to-Significance Horizon
+              Estimated Additional Observation Period
             </span>
             <span className="font-mono text-[11px] text-cyan-300">{horizonPct}%</span>
           </div>
@@ -654,18 +668,18 @@ export default function TrendLab({
           <p className="mt-1.5 text-[11px] text-slate-400">
             {primary_stats.is_significant
               ? `95% confidence threshold reached within ${obsYears} years of observation.`
-              : yearsNeeded >= 90
+              : (primary_stats.estimated_additional_observation_years ?? yearsNeeded) >= 90
                 ? "Slope is near zero; extended observations cannot resolve a monotonic trend."
-                : `Needs ~${yearsNeeded} additional years of monthly satellite data (assuming constant slope & variance).`}
+                : `Power estimate: ~${primary_stats.estimated_additional_observation_years ?? yearsNeeded} additional years of monthly data (illustrative estimate assuming stationary slope and variance, not a forecast).`}
           </p>
         </div>
 
-        {/* Teleconnection Cross-Correlation Summary */}
+        {/* Regional Anomaly Comparison Summary */}
         <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
           <div className="flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-200">
               <Radio className="h-3.5 w-3.5 text-indigo-400" />
-              Teleconnection Link (A vs B)
+              Regional Anomaly Comparison (A vs B)
             </span>
             {teleconnection.enabled && rVal !== null && (
               <span className="font-mono text-xs font-bold text-indigo-300">
@@ -685,13 +699,65 @@ export default function TrendLab({
                 <span className="font-semibold text-indigo-300">{pointB.name}:</span>{" "}
                 {(teleconnection.comparison_sens_slope_per_year ?? 0) >= 0 ? "+" : ""}
                 {teleconnection.comparison_sens_slope_per_year} {metadata.unit}/yr (
-                {teleconnection.comparison_is_significant ? "significant" : "insignificant"}, p ={" "}
+                {teleconnection.comparison_is_significant ? "significant" : "not significant"}, p ={" "}
                 {formatPValue(teleconnection.comparison_p_value)})
+              </p>
+              <p className="text-[10px] text-slate-400">
+                Correlation measures statistical co-variation of deseasonalized anomalies and does not by itself establish physical causation or teleconnection.
               </p>
             </div>
           ) : (
             <p className="mt-1.5 text-[11px] text-slate-400">
               Click &ldquo;Region B&rdquo; on the map above to compute Pearson cross-correlation across distant Earth regions.
+            </p>
+          )}
+        </div>
+
+        {/* Dataset Provenance & Data-Quality Panel */}
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-[11px]">
+          <p className="font-semibold text-slate-200">Dataset Provenance &amp; Data Quality</p>
+          <dl className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1.5 text-slate-300">
+            <div>
+              <dt className="text-[10px] text-slate-500">Source / Collection</dt>
+              <dd className="font-medium text-slate-200">
+                {investigation.response.primary_provenance?.source_name ?? metadata.mission_source}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] text-slate-500">Data Type &amp; Tag</dt>
+              <dd className="font-mono text-[10px] text-cyan-300">
+                {investigation.response.primary_provenance?.data_type ?? metadata.data_type ?? "Reanalysis"} ·{" "}
+                {(investigation.response.dataset_tag ?? investigation.response.data_status).toUpperCase()}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] text-slate-500">Observation Window</dt>
+              <dd className="font-mono text-[10px]">
+                {investigation.response.primary_provenance
+                  ? `${investigation.response.primary_provenance.start_date} → ${investigation.response.primary_provenance.end_date}`
+                  : `${primary_stats.observation_months} months`}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] text-slate-500">Valid / Missing Data</dt>
+              <dd className="font-mono text-[10px]">
+                {primary_stats.valid_months ?? primary_stats.observation_months} valid ·{" "}
+                {(primary_stats.missing_pct ?? 0).toFixed(1)}% missing
+              </dd>
+            </div>
+            <div className="col-span-2">
+              <dt className="text-[10px] text-slate-500">Units &amp; Fallback Status</dt>
+              <dd className="text-[10px] text-slate-300">
+                {metadata.unit} ({investigation.response.primary_provenance?.spatial_resolution ?? metadata.resolution}) ·{" "}
+                {investigation.response.primary_provenance && investigation.response.primary_provenance.fallback_distance_km > 0
+                  ? `Fallback source at ${investigation.response.primary_provenance.source_lat.toFixed(2)}°, ${investigation.response.primary_provenance.source_lon.toFixed(2)}° (${investigation.response.primary_provenance.fallback_distance_km} km away)`
+                  : `Exact requested coordinates (${investigation.response.primary_provenance?.retrieval_status ?? investigation.response.data_status})`}
+              </dd>
+            </div>
+          </dl>
+          {primary_stats.ci_methodology && (
+            <p className="mt-2 border-t border-slate-800/80 pt-1.5 text-[10px] leading-relaxed text-slate-400">
+              {primary_stats.ci_methodology}
             </p>
           )}
         </div>

@@ -257,9 +257,20 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2.0 * r * math.asin(min(1.0, math.sqrt(a)))
 
 
-def _parse_power_monthly_payload(raw_param_dict: dict[str, Any]) -> tuple[list[str], list[float]]:
-    """Strip ANN/13 keys, parse YYYYMM into YYYY-MM, trim trailing -999s, and interpolate gaps."""
-    records: list[tuple[str, float]] = []
+def validate_coordinates(lat: float, lon: float) -> tuple[float, float]:
+    """Validate geographic latitude/longitude bounds."""
+    lat_f = float(lat)
+    lon_f = float(lon)
+    if not math.isfinite(lat_f) or not (-90.0 <= lat_f <= 90.0):
+        raise ValueError(f"Invalid latitude {lat}: must be between -90 and 90 degrees.")
+    if not math.isfinite(lon_f) or not (-180.0 <= lon_f <= 180.0):
+        raise ValueError(f"Invalid longitude {lon}: must be between -180 and 180 degrees.")
+    return lat_f, lon_f
+
+
+def _parse_power_monthly_payload(raw_param_dict: dict[str, Any]) -> tuple[list[str], list[float | None]]:
+    """Strip ANN/13 keys, parse YYYYMM into YYYY-MM, trim leading/trailing missing values, and preserve interior gaps."""
+    records: list[tuple[str, float | None]] = []
     for k in sorted(raw_param_dict.keys()):
         if not isinstance(k, str) or len(k) != 6 or k.endswith("13"):
             continue
@@ -269,37 +280,36 @@ def _parse_power_monthly_payload(raw_param_dict: dict[str, Any]) -> tuple[list[s
         ts = f"{k[:4]}-{k[4:6]}"
         val = raw_param_dict[k]
         if val is None:
-            fv = float("nan")
+            fv: float | None = None
         else:
-            fv = float(val)
-            if not math.isfinite(fv) or fv <= -990.0:
-                fv = float("nan")
+            num = float(val)
+            if not math.isfinite(num) or num <= -990.0:
+                fv = None
+            else:
+                fv = round(num, 4)
         records.append((ts, fv))
 
-    while records and math.isnan(records[-1][1]):
+    while records and records[-1][1] is None:
         records.pop()
-    while records and math.isnan(records[0][1]):
+    while records and records[0][1] is None:
         records.pop(0)
 
     if not records:
         raise ValueError("NASA POWER returned no valid monthly observations for this coordinate.")
 
-    ts_list = [r[0] for r in records]
-    vals = np_pd.Series([r[1] for r in records], dtype=float).interpolate(method="linear", limit_direction="both")
-    clean_vals = [round(float(v), 4) for v in vals.to_numpy()]
-    return ts_list, clean_vals
+    return [r[0] for r in records], [r[1] for r in records]
 
 
 def _slice_window(
-    timestamps: list[str], values: list[float], start_year: int, end_year: int
-) -> tuple[list[str], list[float]]:
+    timestamps: list[str], values: list[float | None], start_year: int, end_year: int
+) -> tuple[list[str], list[float | None]]:
     sliced_ts: list[str] = []
-    sliced_vals: list[float] = []
+    sliced_vals: list[float | None] = []
     for ts, val in zip(timestamps, values):
         yr = int(ts[:4])
         if start_year <= yr <= end_year:
             sliced_ts.append(ts)
-            sliced_vals.append(float(val))
+            sliced_vals.append(float(val) if val is not None else None)
     return sliced_ts, sliced_vals
 
 
@@ -312,6 +322,9 @@ def get_parameter_metadata(parameter: str) -> dict[str, str]:
             "parameter_name": code,
             "unit": "units",
             "mission_source": "Multi-Agency Earth Observation",
+            "collection": "External / Custom Series",
+            "data_type": "external",
+            "temporal_resolution": "Monthly",
             "resolution": "0.5° × 0.625° Grid / Point",
             "plain_definition": f"Monthly Earth observation time series for {code}.",
             "question": f"How is {code} changing?",
@@ -319,6 +332,67 @@ def get_parameter_metadata(parameter: str) -> dict[str, str]:
             "negative_label": "Decreasing",
         }
     return PARAMETER_METADATA[code]
+
+
+def build_series_provenance(
+    *,
+    parameter: str,
+    requested_lat: float,
+    requested_lon: float,
+    actual_lat: float,
+    actual_lon: float,
+    timestamps: list[str],
+    retrieval_status: str,
+    fallback_distance_km: float | None = None,
+    source_override: str | None = None,
+    collection_override: str | None = None,
+    data_type_override: str | None = None,
+    unit_override: str | None = None,
+    spatial_resolution_override: str | None = None,
+    is_synthetic: bool = False,
+    power_header: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build complete scientific provenance metadata for any retrieved, cached, imported, or synthetic series."""
+    param = parameter.upper()
+    meta = get_parameter_metadata(param)
+    api_ver = ""
+    if power_header and isinstance(power_header.get("api"), dict):
+        api_ver = str(power_header["api"].get("version", "")).strip()
+    default_source = meta["mission_source"]
+    if api_ver and "NASA POWER" in default_source:
+        default_source = f"NASA POWER API {api_ver} — {default_source.replace('NASA POWER — ', '')}"
+
+    dist_val = round(float(fallback_distance_km), 2) if fallback_distance_km is not None else 0.0
+    req_lat = round(float(requested_lat), 4)
+    req_lon = round(float(requested_lon), 4)
+    act_lat = round(float(actual_lat), 4)
+    act_lon = round(float(actual_lon), 4)
+    src = source_override or default_source
+    return {
+        "source": src,
+        "source_name": src,
+        "collection": collection_override or meta.get("collection", "MERRA-2"),
+        "data_type": "synthetic_demo" if is_synthetic else (data_type_override or meta.get("data_type", "reanalysis")),
+        "community": POWER_COMMUNITY_MAP.get(param, "AG"),
+        "parameter": param,
+        "parameter_name": meta["parameter_name"],
+        "units": unit_override or meta["unit"],
+        "temporal_resolution": meta.get("temporal_resolution", "Monthly"),
+        "spatial_resolution": spatial_resolution_override or meta["resolution"],
+        "start_date": timestamps[0] if timestamps else None,
+        "end_date": timestamps[-1] if timestamps else None,
+        "requested_coordinates": {"lat": req_lat, "lon": req_lon},
+        "actual_coordinates": {"lat": act_lat, "lon": act_lon},
+        "requested_lat": req_lat,
+        "requested_lon": req_lon,
+        "source_lat": act_lat,
+        "source_lon": act_lon,
+        "retrieval_status": retrieval_status,
+        "dataset_tag": retrieval_status,
+        "fallback_used": retrieval_status == "offline_fallback",
+        "fallback_distance_km": dist_val,
+        "is_synthetic": bool(is_synthetic),
+    }
 
 
 def list_preset_cases() -> list[dict[str, Any]]:
@@ -368,43 +442,74 @@ def get_preset_case_series(case_id: str, start_year: int | None = None, end_year
                 s_yr,
                 e_yr,
             )
+            p_lat, p_lon = float(c["primary_point"]["lat"]), float(c["primary_point"]["lon"])
+            c_lat, c_lon = float(c["comparison_point"]["lat"]), float(c["comparison_point"]["lon"])
             return {
                 "case": c,
                 "primary": {
                     "parameter": c["parameter"],
-                    "lat": c["primary_point"]["lat"],
-                    "lon": c["primary_point"]["lon"],
-                    "bounding_box": compute_bounding_box(c["primary_point"]["lat"], c["primary_point"]["lon"]),
+                    "lat": p_lat,
+                    "lon": p_lon,
+                    "bounding_box": compute_bounding_box(p_lat, p_lon),
                     "timestamps": p_ts,
                     "values": p_vals,
                     "data_status": "cache",
+                    "dataset_tag": "cached",
+                    "provenance": build_series_provenance(
+                        parameter=c["parameter"],
+                        requested_lat=p_lat,
+                        requested_lon=p_lon,
+                        actual_lat=p_lat,
+                        actual_lon=p_lon,
+                        timestamps=p_ts,
+                        retrieval_status="cached",
+                    ),
                 },
                 "comparison": {
                     "parameter": c["parameter"],
-                    "lat": c["comparison_point"]["lat"],
-                    "lon": c["comparison_point"]["lon"],
-                    "bounding_box": compute_bounding_box(c["comparison_point"]["lat"], c["comparison_point"]["lon"]),
+                    "lat": c_lat,
+                    "lon": c_lon,
+                    "bounding_box": compute_bounding_box(c_lat, c_lon),
                     "timestamps": c_ts,
                     "values": c_vals,
                     "data_status": "cache",
+                    "dataset_tag": "cached",
+                    "provenance": build_series_provenance(
+                        parameter=c["parameter"],
+                        requested_lat=c_lat,
+                        requested_lon=c_lon,
+                        actual_lat=c_lat,
+                        actual_lon=c_lon,
+                        timestamps=c_ts,
+                        retrieval_status="cached",
+                    ),
                 },
             }
     return None
 
 
 def _find_nearest_cached(
-    cache: dict[str, Any], parameter: str, lat: float, lon: float, start_year: int, end_year: int
+    cache: dict[str, Any],
+    parameter: str,
+    lat: float,
+    lon: float,
+    start_year: int,
+    end_year: int,
+    max_radius_km: float = MAX_FALLBACK_RADIUS_KM,
 ) -> dict[str, Any] | None:
-    """Find nearest cached observation for parameter by Haversine distance."""
+    """
+    Find nearest cached observation for parameter by Haversine distance within max_radius_km.
+    Preserves actual source coordinates rather than labeling another location's data as local.
+    """
     param = parameter.upper()
-    candidates: list[tuple[float, float, float, list[str], list[float], str]] = []
+    candidates: list[tuple[float, float, float, list[str], list[float | None], str]] = []
 
     for _, entry in cache.get("live_cache", {}).items():
         if entry.get("parameter", "").upper() == param and entry.get("timestamps"):
             e_lat = float(entry["lat"])
             e_lon = float(entry["lon"])
             dist = _haversine_km(lat, lon, e_lat, e_lon)
-            candidates.append((dist, e_lat, e_lon, entry["timestamps"], entry["values"], f"cached ({e_lat:.2f}, {e_lon:.2f})"))
+            candidates.append((dist, e_lat, e_lon, entry["timestamps"], entry["values"], f"cached ({e_lat:.2f}°, {e_lon:.2f}°)"))
 
     for c in cache.get("cases", []):
         if c.get("parameter", "").upper() == param:
@@ -421,17 +526,39 @@ def _find_nearest_cached(
         return None
 
     candidates.sort(key=lambda item: item[0])
-    dist, _, _, ts_all, vals_all, label = candidates[0]
+    dist, src_lat, src_lon, ts_all, vals_all, label = candidates[0]
+    if dist > max_radius_km:
+        return None
+
     ts, vals = _slice_window(ts_all, vals_all, start_year, end_year)
     return {
         "parameter": param,
-        "lat": round(lat, 4),
-        "lon": round(lon, 4),
-        "bounding_box": compute_bounding_box(lat, lon),
+        "lat": round(src_lat, 4),
+        "lon": round(src_lon, 4),
+        "requested_lat": round(float(lat), 4),
+        "requested_lon": round(float(lon), 4),
+        "source_lat": round(src_lat, 4),
+        "source_lon": round(src_lon, 4),
+        "fallback_distance_km": round(dist, 2),
+        "bounding_box": compute_bounding_box(src_lat, src_lon),
         "timestamps": ts,
         "values": vals,
         "data_status": "offline_fallback",
-        "fallback_note": f"Offline fallback using nearest cached dataset: {label} ({dist:.0f} km away).",
+        "dataset_tag": "offline_fallback",
+        "fallback_note": (
+            f"Offline fallback: Using nearest cached MERRA-2 series from {label} at "
+            f"({src_lat:.2f}°, {src_lon:.2f}°), located {dist:.1f} km from requested ({lat:.2f}°, {lon:.2f}°)."
+        ),
+        "provenance": build_series_provenance(
+            parameter=param,
+            requested_lat=lat,
+            requested_lon=lon,
+            actual_lat=src_lat,
+            actual_lon=src_lon,
+            timestamps=ts,
+            retrieval_status="offline_fallback",
+            fallback_distance_km=dist,
+        ),
     }
 
 
@@ -444,50 +571,79 @@ async def fetch_nasa_monthly(
 ) -> dict[str, Any]:
     """
     Fetch monthly NASA POWER observations for (lat, lon, parameter).
-    Checks local cache first, queries NASA POWER API (1981-2025) on miss and caches atomically,
-    and falls back to nearest cached coordinate if offline or rate-limited.
+    Validates coordinates, routes parameter to the appropriate POWER community,
+    checks local cache first, queries NASA POWER API (1981-2025) on miss and caches atomically,
+    and falls back to nearest cached coordinate within MAX_FALLBACK_RADIUS_KM if offline.
     """
+    lat_f, lon_f = validate_coordinates(lat, lon)
     param = parameter.upper()
+    community = POWER_COMMUNITY_MAP.get(param, "AG")
     cache = _load_cache()
-    key = _make_cache_key(param, lat, lon)
+    key = _make_cache_key(param, lat_f, lon_f)
 
     if key in cache.get("live_cache", {}):
         entry = cache["live_cache"][key]
         ts, vals = _slice_window(entry["timestamps"], entry["values"], start_year, end_year)
         if len(ts) >= 24:
+            e_lat = float(entry.get("lat", lat_f))
+            e_lon = float(entry.get("lon", lon_f))
             return {
                 "parameter": param,
-                "lat": round(float(lat), 4),
-                "lon": round(float(lon), 4),
-                "bounding_box": compute_bounding_box(lat, lon),
+                "lat": round(e_lat, 4),
+                "lon": round(e_lon, 4),
+                "bounding_box": compute_bounding_box(e_lat, e_lon),
                 "timestamps": ts,
                 "values": vals,
                 "data_status": "cache",
+                "dataset_tag": "cached",
+                "provenance": build_series_provenance(
+                    parameter=param,
+                    requested_lat=lat_f,
+                    requested_lon=lon_f,
+                    actual_lat=e_lat,
+                    actual_lon=e_lon,
+                    timestamps=ts,
+                    retrieval_status="cached",
+                    power_header=entry.get("power_header"),
+                ),
             }
 
     for c in cache.get("cases", []):
         if c.get("parameter", "").upper() == param:
             for pt_key, ser_key in [("primary_point", "primary_series"), ("comparison_point", "comparison_series")]:
                 pt = c[pt_key]
-                if _haversine_km(lat, lon, float(pt["lat"]), float(pt["lon"])) < 5.0:
+                pt_lat, pt_lon = float(pt["lat"]), float(pt["lon"])
+                dist_km = _haversine_km(lat_f, lon_f, pt_lat, pt_lon)
+                if dist_km < 5.0:
                     ser = c[ser_key]
                     ts, vals = _slice_window(ser["timestamps"], ser["values"], start_year, end_year)
                     if len(ts) >= 24:
                         return {
                             "parameter": param,
-                            "lat": round(float(lat), 4),
-                            "lon": round(float(lon), 4),
-                            "bounding_box": compute_bounding_box(lat, lon),
+                            "lat": round(pt_lat, 4),
+                            "lon": round(pt_lon, 4),
+                            "bounding_box": compute_bounding_box(pt_lat, pt_lon),
                             "timestamps": ts,
                             "values": vals,
                             "data_status": "cache",
+                            "dataset_tag": "cached",
+                            "provenance": build_series_provenance(
+                                parameter=param,
+                                requested_lat=lat_f,
+                                requested_lon=lon_f,
+                                actual_lat=pt_lat,
+                                actual_lon=pt_lon,
+                                timestamps=ts,
+                                retrieval_status="cached",
+                                fallback_distance_km=dist_km,
+                            ),
                         }
 
     query_params = {
         "parameters": param,
-        "community": "AG",
-        "longitude": round(float(lon), 4),
-        "latitude": round(float(lat), 4),
+        "community": community,
+        "longitude": round(lon_f, 4),
+        "latitude": round(lat_f, 4),
         "start": 1981,
         "end": 2025,
         "format": "JSON",
@@ -500,33 +656,48 @@ async def fetch_nasa_monthly(
             payload = resp.json()
 
         raw_param = payload["properties"]["parameter"][param]
+        power_header = payload.get("header") if isinstance(payload.get("header"), dict) else None
         full_ts, full_vals = _parse_power_monthly_payload(raw_param)
 
         cache = _load_cache()
         cache["live_cache"][key] = {
             "parameter": param,
-            "lat": round(float(lat), 4),
-            "lon": round(float(lon), 4),
+            "lat": round(lat_f, 4),
+            "lon": round(lon_f, 4),
             "timestamps": full_ts,
             "values": full_vals,
+            "power_header": power_header,
         }
         _save_cache_atomic(cache)
 
         ts, vals = _slice_window(full_ts, full_vals, start_year, end_year)
         return {
             "parameter": param,
-            "lat": round(float(lat), 4),
-            "lon": round(float(lon), 4),
-            "bounding_box": compute_bounding_box(lat, lon),
+            "lat": round(lat_f, 4),
+            "lon": round(lon_f, 4),
+            "bounding_box": compute_bounding_box(lat_f, lon_f),
             "timestamps": ts,
             "values": vals,
             "data_status": "live",
+            "dataset_tag": "live",
+            "provenance": build_series_provenance(
+                parameter=param,
+                requested_lat=lat_f,
+                requested_lon=lon_f,
+                actual_lat=lat_f,
+                actual_lon=lon_f,
+                timestamps=ts,
+                retrieval_status="live",
+                power_header=power_header,
+            ),
         }
     except Exception as exc:
-        fallback = _find_nearest_cached(cache, param, lat, lon, start_year, end_year)
+        fallback = _find_nearest_cached(cache, param, lat_f, lon_f, start_year, end_year)
         if fallback is not None and len(fallback["timestamps"]) >= 24:
             return fallback
-        raise RuntimeError(f"NASA POWER API unavailable and no cached fallback found for {param}: {exc}") from exc
+        raise RuntimeError(
+            f"NASA POWER API unavailable and no cached fallback within {MAX_FALLBACK_RADIUS_KM:.0f} km found for {param}: {exc}"
+        ) from exc
 
 
 def build_partner_deep_links(
@@ -562,33 +733,33 @@ def build_partner_deep_links(
         {
             "id": "giovanni",
             "agency": "NASA GES DISC",
-            "title": "NASA Giovanni Time-Series Portal",
+            "title": "NASA Giovanni Time-Series Portal (Manual Export → Import)",
             "category": "NASA Data & Resources",
-            "description": f"Launch area-averaged monthly time series for bbox [{bbox_str}] ({g_var}).",
+            "description": f"Manual workflow: export area-averaged monthly CSV for bbox [{bbox_str}] ({g_var}) and upload via Import CSV.",
             "url": giovanni_url,
         },
         {
             "id": "hydrology_ts",
             "agency": "NASA GES DISC",
-            "title": "Hydrology Time Series (Data Rods)",
+            "title": "Hydrology Time Series / Data Rods (Manual Export → Import)",
             "category": "NASA Data & Resources",
-            "description": f"Generate GLDAS/NLDAS soil moisture, runoff, and precipitation rods at ({lat:.2f}°, {lon:.2f}°).",
+            "description": f"Manual workflow: generate GLDAS/NLDAS ASCII/CSV rods at ({lat:.2f}°, {lon:.2f}°) and import into TerraShift.",
             "url": hydro_url,
         },
         {
             "id": "appeears",
             "agency": "NASA LP DAAC",
-            "title": "NASA AppEEARS Geospatial Extractor",
+            "title": "NASA AppEEARS Portal (Catalog Discovery + Manual Extraction)",
             "category": "NASA Data & Resources",
-            "description": "Access & transform MODIS NDVI, SMAP, and ECOSTRESS point/polygon time series.",
+            "description": "Live product catalog discovery in-app; point/polygon extraction requires Earthdata login on AppEEARS and CSV import.",
             "url": "https://appeears.earthdatacloud.nasa.gov/",
         },
         {
             "id": "noaa_cdo",
             "agency": "NOAA NCEI",
-            "title": "Climate Data Online (CDO)",
+            "title": "Climate Data Online / CDO (Station Discovery + Manual CSV)",
             "category": "NASA Data & Resources",
-            "description": "Historical global weather station archives (GSOM) & station mapping tool.",
+            "description": "Station metadata discovery via NOAA_CDO_TOKEN; historical GSOM CSV exports can be uploaded via Import CSV.",
             "url": "https://www.ncei.noaa.gov/cdo-web/",
         },
         {
@@ -602,9 +773,9 @@ def build_partner_deep_links(
         {
             "id": "knmi_climexp",
             "agency": "KNMI Partner",
-            "title": "KNMI Climate Explorer",
+            "title": "KNMI Climate Explorer (Manual Export → Import)",
             "category": "Space Agency Partner Resources",
-            "description": "Web-based climate anomaly, teleconnection correlation, and station analysis tool.",
+            "description": "Manual workflow: export 13-column .dat/.txt tables from KNMI Climate Explorer and upload via Import CSV.",
             "url": "https://climexp.knmi.nl/",
         },
         {
@@ -857,6 +1028,14 @@ def parse_external_timeseries(
     detected_source = source_hint if source_hint != "auto" else "External Satellite/Station Series"
     detected_param = "CUSTOM_IMPORT"
     detected_unit = "units"
+    is_synthetic = "SYNTHETIC" in source_hint.upper() or "DEMO" in source_hint.upper()
+    for ln in lines[:10]:
+        if ln.startswith("#") or ln.startswith("%"):
+            upper_ln = ln.upper()
+            if "SYNTHETIC_DEMO_DATA" in upper_ln or "SYNTHETIC" in upper_ln:
+                is_synthetic = True
+
+    dataset_tag = "synthetic" if is_synthetic else "imported"
 
     # Check if KNMI Climate Explorer 13-column format (YYYY val1 val2 ... val12)
     knmi_records: dict[str, float] = {}
@@ -885,9 +1064,17 @@ def parse_external_timeseries(
             [round(knmi_records[k], 4) for k in sorted_ts],
             {
                 "parameter_code": "KNMI_SERIES",
-                "parameter_name": "KNMI Climate Explorer Series",
+                "parameter_name": (
+                    "Synthetic Demo Series (KNMI Format)" if is_synthetic else "KNMI Climate Explorer Series"
+                ),
                 "unit": detected_unit,
-                "mission_source": "KNMI Climate Explorer (Royal Netherlands Meteorological Institute)",
+                "mission_source": (
+                    "Synthetic Demo Waveform (KNMI 13-column format)"
+                    if is_synthetic
+                    else "KNMI Climate Explorer (Manual Table Import)"
+                ),
+                "is_synthetic": "true" if is_synthetic else "false",
+                "dataset_tag": dataset_tag,
             },
         )
 
@@ -946,9 +1133,19 @@ def parse_external_timeseries(
         avg_vals,
         {
             "parameter_code": detected_param,
-            "parameter_name": f"Imported {detected_source} Series",
+            "parameter_name": (
+                f"Synthetic Demo Series ({detected_source} Format)"
+                if is_synthetic
+                else f"Imported {detected_source} Series"
+            ),
             "unit": detected_unit,
-            "mission_source": detected_source,
+            "mission_source": (
+                f"Synthetic Demo Waveform ({detected_source} format)"
+                if is_synthetic
+                else detected_source
+            ),
+            "is_synthetic": "true" if is_synthetic else "false",
+            "dataset_tag": dataset_tag,
         },
     )
 
@@ -961,6 +1158,7 @@ async def seed_preset_cases() -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=15.0) as client:
         for spec in PRESET_CASE_SPECS:
             param = spec["parameter"]
+            community = POWER_COMMUNITY_MAP.get(param.upper(), "AG")
             p_pt = spec["primary_point"]
             c_pt = spec["comparison_point"]
 
@@ -969,7 +1167,7 @@ async def seed_preset_cases() -> dict[str, Any]:
                     NASA_POWER_URL,
                     params={
                         "parameters": param,
-                        "community": "AG",
+                        "community": community,
                         "longitude": p_pt["lon"],
                         "latitude": p_pt["lat"],
                         "start": 1981,
@@ -981,7 +1179,7 @@ async def seed_preset_cases() -> dict[str, Any]:
                     NASA_POWER_URL,
                     params={
                         "parameters": param,
-                        "community": "AG",
+                        "community": community,
                         "longitude": c_pt["lon"],
                         "latitude": c_pt["lat"],
                         "start": 1981,

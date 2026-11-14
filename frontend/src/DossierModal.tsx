@@ -85,6 +85,10 @@ export default function DossierModal({
           comparison_slope_per_year: teleconnection.comparison_sens_slope_per_year,
           cross_correlation_r: teleconnection.cross_correlation_r,
           case_id: investigation.request.case_id,
+          provenance: investigation.response.primary_provenance ?? null,
+          sens_slope_ci_lower: primary_stats.sens_slope_ci_lower ?? null,
+          sens_slope_ci_upper: primary_stats.sens_slope_ci_upper ?? null,
+          missing_pct: primary_stats.missing_pct ?? null,
         }),
       });
       if (resp.ok) {
@@ -97,7 +101,39 @@ export default function DossierModal({
   };
 
   const handleDownloadJson = () => {
-    const blob = new Blob([JSON.stringify({ ...investigation, detective_brief: brief }, null, 2)], {
+    const exportPayload = {
+      schema_version: "2.0.0",
+      exported_at: new Date().toISOString(),
+      provenance: {
+        dataset_tag: investigation.response.dataset_tag ?? data_status,
+        data_status,
+        primary: investigation.response.primary_provenance ?? null,
+        comparison: investigation.response.comparison_provenance ?? null,
+      },
+      methodology_and_assumptions: {
+        mk_variant: primary_stats.mk_variant,
+        ci_methodology:
+          primary_stats.ci_methodology ??
+          "Sen's slope 95% CI uses Sen (1968) order statistics; chart band shows 95% OLS mean-response CI.",
+        horizon_assumptions:
+          primary_stats.horizon_assumptions ??
+          "Estimated Additional Observation Period is an illustrative statistical power estimate assuming stationary slope and variance, not a forecast.",
+        brief_methodology_note: brief.methodology_note ?? null,
+      },
+      limitations: [
+        brief.limitations_note ??
+          "Statistical significance (alpha = 0.05) depends on window length and autocorrelation; p >= 0.05 does not prove absence of physical change, and cross-correlation r does not prove causation.",
+        data_status === "synthetic"
+          ? "SYNTHETIC DEMO DATA: Not real NASA or agency observations."
+          : null,
+      ].filter(Boolean),
+      request: investigation.request,
+      response: {
+        ...investigation.response,
+        detective_brief: brief,
+      },
+    };
+    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], {
       type: "application/json",
     });
     const url = URL.createObjectURL(blob);
@@ -241,7 +277,7 @@ export default function DossierModal({
             </div>
 
             <div className="rounded-lg border border-slate-300 p-3 text-xs">
-              <p className="font-bold text-slate-900">Teleconnection Comparison (B)</p>
+              <p className="font-bold text-slate-900">Regional Anomaly Comparison (B)</p>
               {pointB && comparison_stats ? (
                 <>
                   <p className="text-slate-700">
@@ -267,9 +303,11 @@ export default function DossierModal({
                     <strong>{fmtP(teleconnection.cross_correlation_p_value)}</strong>
                     <span>STL Var Removed:</span>
                     <strong>{primary_stats.variance_reduction_pct}%</strong>
-                    <span>Horizon Needed:</span>
+                    <span>Est. Add&apos;l Obs. Period:</span>
                     <strong>
-                      {primary_stats.is_significant ? "0 yrs (Confirmed)" : `~${primary_stats.years_to_significance} yrs`}
+                      {primary_stats.is_significant
+                        ? "0 yrs (Confirmed)"
+                        : `~${primary_stats.estimated_additional_observation_years ?? primary_stats.years_to_significance} yrs`}
                     </strong>
                   </div>
                 </>
@@ -281,9 +319,11 @@ export default function DossierModal({
                     <strong>{primary_stats.variance_reduction_pct}%</strong>
                     <span>Seasonal Swing:</span>
                     <strong>&plusmn;{primary_stats.seasonal_amplitude} {metadata.unit}</strong>
-                    <span>Horizon Needed:</span>
+                    <span>Est. Add&apos;l Obs. Period:</span>
                     <strong>
-                      {primary_stats.is_significant ? "0 yrs (Confirmed)" : `~${primary_stats.years_to_significance} yrs`}
+                      {primary_stats.is_significant
+                        ? "0 yrs (Confirmed)"
+                        : `~${primary_stats.estimated_additional_observation_years ?? primary_stats.years_to_significance} yrs`}
                     </strong>
                   </div>
                 </div>
@@ -351,6 +391,27 @@ export default function DossierModal({
                 3. Observation Window &amp; Statistical Power Assessment
               </h3>
               <p className="mt-0.5 text-slate-700">{brief.horizon_note}</p>
+            </div>
+            <div>
+              <h3 className="font-bold uppercase tracking-wide text-slate-800">
+                4. Dataset Provenance, Methodology &amp; Limitations
+              </h3>
+              <p className="mt-0.5 text-slate-700">
+                <strong>Source &amp; Status:</strong>{" "}
+                {investigation.response.primary_provenance?.source_name ?? metadata.mission_source} (
+                {(investigation.response.dataset_tag ?? data_status).toUpperCase()}) ·{" "}
+                {primary_stats.valid_months ?? primary_stats.observation_months} valid months ·{" "}
+                {(primary_stats.missing_pct ?? 0).toFixed(1)}% missing data.{" "}
+                {investigation.response.primary_provenance &&
+                investigation.response.primary_provenance.fallback_distance_km > 0
+                  ? `Fallback source coordinates (${investigation.response.primary_provenance.source_lat.toFixed(2)}°, ${investigation.response.primary_provenance.source_lon.toFixed(2)}°; ${investigation.response.primary_provenance.fallback_distance_km} km from request).`
+                  : ""}
+              </p>
+              {brief.limitations_note && (
+                <p className="mt-1 text-slate-600">
+                  <strong>Limitations:</strong> {brief.limitations_note}
+                </p>
+              )}
             </div>
             <div className="border-t border-slate-200 pt-2 text-[11px] text-slate-600">
               <p>

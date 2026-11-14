@@ -290,3 +290,114 @@ def test_partner_intel_and_multi_agency_series_importer():
     k_res = imp_k.json()["response"]
     assert k_res["metadata"]["parameter_code"] == "KNMI_SERIES"
     assert k_res["primary_stats"]["observation_months"] == 15 * 12
+
+
+def test_hamed_rao_matches_pymannkendall_and_sens_ci():
+    import pymannkendall as mk
+    from stats_engine import sens_slope
+
+    rng = np.random.default_rng(7)
+    n = 120
+    # Autocorrelated AR(1) series with trend
+    noise = np.zeros(n)
+    for i in range(1, n):
+        noise[i] = 0.65 * noise[i - 1] + rng.normal(0.0, 0.35)
+    vals = (0.04 * np.arange(n) / 12.0 + noise).tolist()
+
+    hr = mann_kendall_test(vals, variant="hamed_rao")
+    ref = mk.hamed_rao_modification_test(vals)
+    assert abs(hr["tau"] - ref.Tau) < 1e-6
+    assert abs(hr["z_score"] - ref.z) < 1e-3
+    assert abs(hr["p_value"] - ref.p) < 1e-3
+
+    sen = sens_slope(vals)
+    assert sen["sens_slope_ci_lower"] <= sen["sens_slope_per_year"] <= sen["sens_slope_ci_upper"]
+
+
+def test_monthly_index_duplicates_missing_pct_and_long_gap_rejection():
+    # Duplicate timestamps averaged + short <=2-month gap allowed
+    timestamps = []
+    values = []
+    for i in range(48):
+        yr = 2015 + i // 12
+        mo = (i % 12) + 1
+        ts = f"{yr:04d}-{mo:02d}-01"
+        if i in (10, 11):
+            # 2-month missing gap
+            continue
+        timestamps.append(ts)
+        values.append(10.0 + 0.05 * i)
+        if i == 5:
+            # Duplicate timestamp
+            timestamps.append(ts)
+            values.append(10.0 + 0.05 * i + 2.0)
+
+    res = analyze_series(timestamps=timestamps, values=values)
+    ps = res["primary_stats"]
+    assert ps["duplicate_timestamps_merged"] == 1
+    assert ps["missing_months"] == 2
+    assert ps["missing_pct"] > 0.0
+    assert ps["max_consecutive_missing"] == 2
+
+    # Long gap (> 3 consecutive missing months) must raise ValueError
+    long_gap_ts = []
+    long_gap_vals = []
+    for i in range(48):
+        yr = 2015 + i // 12
+        mo = (i % 12) + 1
+        if 12 <= i <= 16:  # 5 consecutive missing months
+            continue
+        long_gap_ts.append(f"{yr:04d}-{mo:02d}-01")
+        long_gap_vals.append(10.0 + 0.05 * i)
+
+    with pytest.raises(ValueError, match="consecutive months"):
+        analyze_series(timestamps=long_gap_ts, values=long_gap_vals)
+
+
+def test_fallback_radius_and_source_coordinate_preservation():
+    from nasa_service import _find_nearest_cached, _load_cache, validate_coordinates
+
+    with pytest.raises(ValueError, match="latitude"):
+        validate_coordinates(95.0, 0.0)
+    with pytest.raises(ValueError, match="longitude"):
+        validate_coordinates(0.0, 190.0)
+
+    cache = _load_cache()
+    # Near Svalbard (within 500 km) should succeed and preserve Svalbard's actual coordinates
+    near = _find_nearest_cached(cache, "T2M", 78.5, 16.0, 1990, 2025)
+    assert near is not None
+    assert near["provenance"]["source_lat"] != 78.5
+    assert 0 < near["provenance"]["fallback_distance_km"] <= 500.0
+
+    # Far ocean point (> 500 km from any cached case) should return None
+    far = _find_nearest_cached(cache, "T2M", -45.0, -140.0, 1990, 2025)
+    assert far is None
+
+
+def test_synthetic_vs_imported_tagging_and_power_community_map():
+    from fastapi.testclient import TestClient
+    from main import app
+    from nasa_service import POWER_COMMUNITY_MAP
+
+    assert POWER_COMMUNITY_MAP["T2M"] == "AG"
+    assert POWER_COMMUNITY_MAP["PRECTOTCORR"] == "AG"
+    assert POWER_COMMUNITY_MAP["GWETROOT"] == "AG"
+    assert POWER_COMMUNITY_MAP["GWETPROF"] == "AG"
+
+    client = TestClient(app)
+    rows = ["# SYNTHETIC_DEMO_DATA: true", "time,val"]
+    for yr in range(2010, 2014):
+        for m in range(1, 13):
+            rows.append(f"{yr}-{m:02d}-01,{1.0 + 0.02 * (yr - 2010):.3f}")
+
+    resp = client.post(
+        "/api/import-series",
+        json={"raw_text": "\n".join(rows), "region_name": "Synthetic Check", "unit": "mm"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()["response"]
+    assert body["data_status"] == "synthetic"
+    assert body["dataset_tag"] == "synthetic"
+    assert body["primary_provenance"]["is_synthetic"] is True
+    assert body["primary_provenance"]["dataset_tag"] == "synthetic_demo"
+    assert "[SYNTHETIC DEMO]" in body["detective_brief"]["verdict_headline"]

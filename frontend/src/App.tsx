@@ -57,8 +57,10 @@ const DETECTIVE_QUESTIONS: { question: string; parameter: string; hint: string }
 
 function buildSampleGiovanniCsv(): string {
   const rows = [
-    "# NASA Giovanni Area-Averaged Time Series (MODIS / SeaWiFS Chlorophyll-a & Coastal Plume Index)",
-    "# Region: Mississippi River Delta Plume (29.15N, 89.25W)",
+    "# SYNTHETIC_DEMO_DATA: true",
+    "# WARNING: Synthetic demonstration data generated for format testing only — NOT real NASA Giovanni or SeaWiFS observations.",
+    "# Format: NASA Giovanni Area-Averaged Time Series CSV",
+    "# Demo Region: Mississippi River Delta Plume (29.15N, 89.25W)",
     "time,chlorophyll_a_mg_m3",
   ];
   for (let yr = 1998; yr <= 2024; yr++) {
@@ -74,8 +76,10 @@ function buildSampleGiovanniCsv(): string {
 
 function buildSampleKnmiDat(): string {
   const rows = [
-    "# KNMI Climate Explorer & CSA Hydrometric Monthly Water-Level Anomaly (m)",
-    "# Station: Mackenzie River / Beaufort Delta Benchmark (68.80N, 134.40W)",
+    "# SYNTHETIC_DEMO_DATA: true",
+    "# WARNING: Synthetic demonstration data generated for format testing only — NOT real KNMI or CSA hydrometric observations.",
+    "# Format: KNMI Climate Explorer Monthly Table (.dat)",
+    "# Demo Station: Mackenzie River / Beaufort Delta Benchmark (68.80N, 134.40W)",
   ];
   for (let yr = 1995; yr <= 2024; yr++) {
     const vals: string[] = [];
@@ -472,6 +476,16 @@ export default function App() {
                   <WifiOff className="h-3.5 w-3.5" /> Offline Cache Fallback
                 </span>
               )}
+              {dataStatus === "imported" && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-xs font-medium text-indigo-300">
+                  <Upload className="h-3.5 w-3.5" /> Imported Agency Data
+                </span>
+              )}
+              {dataStatus === "synthetic" && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/40 bg-rose-500/15 px-3 py-1 text-xs font-semibold text-rose-200">
+                  Synthetic Demo Data (Not NASA Observations)
+                </span>
+              )}
 
               <button
                 type="button"
@@ -690,7 +704,7 @@ export default function App() {
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
                   <p className="font-semibold text-cyan-300">
-                    Live NASA CMR Satellite Granules (SWOT / SeaWiFS / EOS)
+                    NASA CMR Collection Metadata Discovery (SWOT / SeaWiFS / EOS)
                   </p>
                   <div className="mt-1.5 space-y-1.5">
                     {partnerIntel.cmr_collections.slice(0, 3).map((c) => (
@@ -704,7 +718,7 @@ export default function App() {
 
                 <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
                   <p className="font-semibold text-emerald-300">
-                    Live NASA AppEEARS Compatible Products
+                    NASA AppEEARS Catalog Discovery (Manual Export &rarr; Import)
                   </p>
                   <div className="mt-1.5 space-y-1.5">
                     {partnerIntel.appeears_products.slice(0, 3).map((p) => (
@@ -720,7 +734,7 @@ export default function App() {
 
                 <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
                   <p className="font-semibold text-amber-300">
-                    CSA / Geo.ca MSC GeoMet &amp; NOAA CDO Status
+                    CSA / Geo.ca MSC GeoMet &amp; NOAA CDO Station Discovery
                   </p>
                   <div className="mt-1.5 space-y-1.5">
                     {partnerIntel.csa_geomet_stations.length > 0 ? (
@@ -770,6 +784,40 @@ export default function App() {
             </div>
           )}
         </header>
+
+        {/* 3-Step Investigation Workflow Guide */}
+        <div className="grid grid-cols-1 gap-2 rounded-xl border border-slate-800/80 bg-slate-900/50 px-4 py-2.5 text-xs sm:grid-cols-3">
+          <div className="flex items-center gap-2">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-500/20 font-mono text-[11px] font-bold text-cyan-300">
+              1
+            </span>
+            <span className="text-slate-300">
+              <strong className="text-slate-100">Choose variable or question</strong> (T2M, PRECTOTCORR, GWETROOT, GWETPROF)
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-500/20 font-mono text-[11px] font-bold text-cyan-300">
+              2
+            </span>
+            <span className="text-slate-300">
+              <strong className="text-slate-100">Select 1–2 regions</strong> on the map or pick a preset case
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-500/20 font-mono text-[11px] font-bold text-cyan-300">
+              3
+            </span>
+            <span className="text-slate-300">
+              <strong className="text-slate-100">Analyze &amp; interpret</strong> STL anomalies, MK p-value, and provenance
+            </span>
+          </div>
+        </div>
+
+        {dataStatus === "synthetic" && (
+          <div className="rounded-xl border border-rose-500/40 bg-rose-950/40 px-4 py-2.5 text-xs text-rose-200">
+            <strong>SYNTHETIC DEMO DATA ACTIVE:</strong> The current series was generated for format demonstration and testing only. It does not represent real NASA or partner agency observations.
+          </div>
+        )}
 
         {error && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-500/40 bg-rose-950/60 px-4 py-3 text-xs text-rose-200">
@@ -885,26 +933,26 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    setImportRegionName("Mississippi Delta Plume (SeaWiFS / Giovanni)");
+                    setImportRegionName("Synthetic Demo: Mississippi Delta Plume (Giovanni Format)");
                     setImportUnit("mg/m³");
                     setImportSourceHint("NASA Giovanni");
                     setImportText(buildSampleGiovanniCsv());
                   }}
                   className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-1 font-medium text-cyan-200 hover:bg-cyan-500/20"
                 >
-                  Load Sample NASA Giovanni / SeaWiFS CSV
+                  Load Synthetic Demo CSV (Giovanni Format)
                 </button>
                 <button
                   type="button"
                   onClick={() => {
-                    setImportRegionName("Mackenzie Delta Gauge (KNMI / CSA Hydrometric)");
+                    setImportRegionName("Synthetic Demo: Mackenzie Delta Gauge (KNMI Format)");
                     setImportUnit("m");
                     setImportSourceHint("KNMI Climate Explorer");
                     setImportText(buildSampleKnmiDat());
                   }}
                   className="rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-2.5 py-1 font-medium text-indigo-200 hover:bg-indigo-500/20"
                 >
-                  Load Sample KNMI / CSA Hydrometric (.dat)
+                  Load Synthetic Demo Table (KNMI Format)
                 </button>
                 <label className="cursor-pointer rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 font-medium text-slate-200 hover:bg-slate-700">
                   Upload Local File (.csv / .dat / .txt)
