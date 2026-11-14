@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 from typing import Any, Literal
 
 
@@ -28,9 +30,12 @@ def _load_local_env() -> None:
 _load_local_env()
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from nasa_service import (
     PARAMETER_METADATA,
@@ -50,23 +55,191 @@ app = FastAPI(
     version="2.0.0",
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+
+def _get_cors_origins() -> list[str]:
+    """Retrieve allowed CORS origins from environment variable or standard defaults."""
+    raw = os.environ.get("CORS_ORIGINS", "").strip()
+    if raw:
+        return [o.strip() for o in raw.split(",") if o.strip()]
+    return [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
-    ],
-    allow_credentials=True,
+        "http://127.0.0.1:3000",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ]
+
+
+_origins = _get_cors_origins()
+_has_wildcard = "*" in _origins
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins if not _has_wildcard else ["*"],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$" if not _has_wildcard else None,
+    allow_credentials=not _has_wildcard,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Standardized API Error Handlers
+# ---------------------------------------------------------------------------
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Format Pydantic request validation errors into a human-readable and structured payload."""
+    errors = exc.errors()
+    error_messages = []
+    for err in errors:
+        loc = ".".join(str(x) for x in err.get("loc", []) if x != "body")
+        msg = err.get("msg", "Validation error")
+        error_messages.append(f"{loc}: {msg}" if loc else msg)
+    combined_detail = "; ".join(error_messages) if error_messages else "Request validation failed."
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "detail": combined_detail,
+            "error": True,
+            "error_type": "validation_error",
+            "errors": jsonable_encoder(errors),
+        },
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    """Standardize HTTP exception format across all endpoints."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": exc.detail,
+            "error": True,
+            "status_code": exc.status_code,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Data Models: Request & Response Schemas
+# ---------------------------------------------------------------------------
 
 
 class GeoPoint(BaseModel):
     name: str = Field(default="Selected Region", max_length=120)
     lat: float = Field(..., ge=-90.0, le=90.0)
     lon: float = Field(..., ge=-180.0, le=180.0)
+
+
+class BoundingBoxModel(BaseModel):
+    south: float
+    north: float
+    west: float
+    east: float
+
+
+class ParameterMetaModel(BaseModel):
+    parameter_code: str
+    parameter_name: str
+    unit: str
+    mission_source: str
+    collection: str | None = None
+    data_type: str | None = None
+    temporal_resolution: str | None = None
+    resolution: str
+    plain_definition: str
+    question: str
+    positive_label: str
+    negative_label: str
+
+
+class PresetCaseMetaModel(BaseModel):
+    case_id: str
+    title: str
+    short_title: str
+    mechanism_teaser: str
+    parameter: str
+    parameter_name: str
+    unit: str
+    mission_label: str
+    primary_point: GeoPoint
+    comparison_point: GeoPoint | None = None
+    default_window: list[int]
+    data_source: str
+    cached: bool
+
+
+class AnalyzedSeriesModel(BaseModel):
+    timestamps: list[str]
+    raw_values: list[float | None]
+    seasonal_cycle: list[float | None]
+    deseasonalized_anomalies: list[float | None]
+    trend_line: list[float | None]
+    ci_upper: list[float | None]
+    ci_lower: list[float | None]
+
+
+class SeriesStatsModel(BaseModel):
+    mann_kendall_tau: float
+    z_score: float
+    p_value: float
+    t_test_p_value: float
+    raw_p_value: float
+    is_significant: bool
+    sens_slope_per_year: float
+    sens_slope_per_decade: float
+    ols_slope_per_year: float
+    years_to_significance: int
+    variance_reduction_pct: float
+    seasonal_amplitude: float
+    observation_months: int
+    observation_years: float
+    mk_variant: str
+
+
+class TeleconnectionSummaryModel(BaseModel):
+    enabled: bool
+    comparison_anomalies: list[float | None]
+    comparison_sens_slope_per_year: float | None = None
+    comparison_sens_slope_per_decade: float | None = None
+    comparison_is_significant: bool = False
+    comparison_p_value: float | None = None
+    cross_correlation_r: float | None = None
+    cross_correlation_p_value: float | None = None
+
+
+class DetectiveBriefModel(BaseModel):
+    verdict_headline: str
+    physical_mechanism: str
+    seasonality_note: str
+    horizon_note: str
+    reference: str
+    biome_zone: str
+    ai_enhanced: bool
+
+
+class InvestigateDataModel(BaseModel):
+    metadata: ParameterMetaModel
+    data_status: Literal["live", "cache", "offline_fallback"]
+    fallback_note: str | None = None
+    primary_bounding_box: BoundingBoxModel
+    comparison_bounding_box: BoundingBoxModel | None = None
+    primary_series: AnalyzedSeriesModel
+    primary_stats: SeriesStatsModel
+    comparison_series: AnalyzedSeriesModel | None = None
+    comparison_stats: SeriesStatsModel | None = None
+    teleconnection: TeleconnectionSummaryModel
+    detective_brief: DetectiveBriefModel
+
+
+class InvestigateResponseModel(BaseModel):
+    request: dict[str, Any]
+    response: InvestigateDataModel
 
 
 class AnalyzeRequest(BaseModel):
@@ -78,9 +251,35 @@ class AnalyzeRequest(BaseModel):
     comparison_timestamps: list[str] | None = Field(
         default=None, description="Optional timestamps for comparison series"
     )
-    start_year: int | None = Field(default=None, ge=1981, le=2025)
-    end_year: int | None = Field(default=None, ge=1981, le=2025)
+    start_year: int | None = Field(default=None, ge=1800, le=2100)
+    end_year: int | None = Field(default=None, ge=1800, le=2100)
     mk_variant: Literal["standard", "hamed_rao"] = Field(default="standard")
+
+    @model_validator(mode="after")
+    def validate_lengths_and_window(self) -> AnalyzeRequest:
+        if len(self.timestamps) != len(self.values):
+            raise ValueError(
+                f"timestamps and values must have identical lengths (got {len(self.timestamps)} vs {len(self.values)})."
+            )
+        if len(self.timestamps) < 24:
+            raise ValueError(
+                f"At least 24 monthly observations are required for STL decomposition (got {len(self.timestamps)})."
+            )
+        if self.comparison_values is not None and self.comparison_timestamps is not None:
+            if len(self.comparison_values) != len(self.comparison_timestamps):
+                raise ValueError("comparison_timestamps and comparison_values must have identical lengths.")
+        if self.start_year is not None and self.end_year is not None:
+            if self.start_year >= self.end_year:
+                raise ValueError("start_year must be strictly less than end_year.")
+        return self
+
+
+class AnalyzeResponseModel(BaseModel):
+    primary_series: AnalyzedSeriesModel
+    primary_stats: SeriesStatsModel
+    teleconnection: TeleconnectionSummaryModel
+    comparison_series: AnalyzedSeriesModel | None = None
+    comparison_stats: SeriesStatsModel | None = None
 
 
 class InvestigateRequest(BaseModel):
@@ -92,6 +291,20 @@ class InvestigateRequest(BaseModel):
     end_year: int = Field(default=2025, ge=1981, le=2025)
     mk_variant: Literal["standard", "hamed_rao"] = Field(default="standard")
 
+    @field_validator("parameter")
+    @classmethod
+    def clean_parameter(cls, v: str) -> str:
+        s = v.strip().upper()
+        if not s:
+            raise ValueError("parameter cannot be empty.")
+        return s
+
+    @model_validator(mode="after")
+    def check_years(self) -> InvestigateRequest:
+        if self.start_year >= self.end_year:
+            raise ValueError("start_year must be strictly less than end_year.")
+        return self
+
 
 class ImportSeriesRequest(BaseModel):
     raw_text: str = Field(..., description="Raw CSV, ASCII, or KNMI 13-col text exported from Giovanni, GES DISC, AppEEARS, KNMI, or NOAA CDO")
@@ -101,6 +314,22 @@ class ImportSeriesRequest(BaseModel):
     lon: float = Field(default=0.0, ge=-180.0, le=180.0)
     unit: str | None = Field(default=None)
     mk_variant: Literal["standard", "hamed_rao"] = Field(default="standard")
+    start_year: int | None = Field(default=None, ge=1800, le=2100)
+    end_year: int | None = Field(default=None, ge=1800, le=2100)
+
+    @field_validator("raw_text")
+    @classmethod
+    def validate_raw_text(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Uploaded time-series file is empty.")
+        return v
+
+    @model_validator(mode="after")
+    def check_years(self) -> ImportSeriesRequest:
+        if self.start_year is not None and self.end_year is not None:
+            if self.start_year >= self.end_year:
+                raise ValueError("start_year must be strictly less than end_year.")
+        return self
 
 
 class ExplainRequest(BaseModel):
@@ -117,6 +346,81 @@ class ExplainRequest(BaseModel):
     comparison_slope_per_year: float | None = None
     cross_correlation_r: float | None = None
     case_id: str | None = None
+
+    @field_validator("parameter")
+    @classmethod
+    def clean_parameter(cls, v: str) -> str:
+        return v.strip().upper()
+
+
+class HealthResponseModel(BaseModel):
+    status: str
+    service: str
+    version: str
+    cache_available: bool
+    timestamp: str | None = None
+
+
+class StatusResponseModel(BaseModel):
+    status: str
+    service: str
+    version: str
+    cache_available: bool
+    cases_count: int
+    live_cache_count: int
+    parameters: list[str]
+    environment: str
+
+
+class CasesListResponseModel(BaseModel):
+    cases: list[PresetCaseMetaModel]
+    parameters: dict[str, Any]
+
+
+class PartnerDeepLinkModel(BaseModel):
+    id: str
+    agency: str
+    title: str
+    category: str
+    description: str
+    url: str
+
+
+class CmrCollectionModel(BaseModel):
+    short_name: str
+    title: str
+    data_center: str
+    summary: str
+
+
+class AppeearsProductModel(BaseModel):
+    product_id: str
+    platform: str
+    description: str
+    resolution: str
+
+
+class CsaStationModel(BaseModel):
+    type: str
+    station_name: str
+    station_id: str
+    province: str
+    sample_date: str
+    sample_metric: str
+
+
+class PartnerIntelResponseModel(BaseModel):
+    coordinates: dict[str, Any]
+    cmr_collections: list[CmrCollectionModel]
+    appeears_products: list[AppeearsProductModel]
+    csa_geomet_stations: list[CsaStationModel]
+    noaa_cdo_status: str
+    deep_links: list[PartnerDeepLinkModel]
+
+
+# ---------------------------------------------------------------------------
+# Physics-Grounded Brief Synthesis & Optional Gemini Augmentation
+# ---------------------------------------------------------------------------
 
 
 def _build_deterministic_brief(
@@ -294,7 +598,7 @@ def _build_deterministic_brief(
 
 
 async def _maybe_enhance_with_gemini(req: ExplainRequest, baseline: dict[str, Any]) -> dict[str, Any]:
-    """Optionally refine the deterministic brief using Gemini 2.5 Flash if GEMINI_API_KEY is configured."""
+    """Optionally refine the deterministic brief using Gemini Flash if GEMINI_API_KEY is configured."""
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
         return baseline
@@ -348,10 +652,66 @@ async def _maybe_enhance_with_gemini(req: ExplainRequest, baseline: dict[str, An
     return baseline
 
 
-@app.get("/api/health")
-def health_check() -> dict[str, str]:
-    """Liveness check endpoint."""
-    return {"status": "ok", "service": "TerraShift API"}
+# ---------------------------------------------------------------------------
+# API Endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/")
+def root_info() -> dict[str, str]:
+    """Root info endpoint describing TerraShift service and primary links."""
+    return {
+        "service": "TerraShift API",
+        "description": "Earth System Trend Detective API with STL decomposition, Mann-Kendall, and Multi-Agency integration.",
+        "version": "2.0.0",
+        "status": "ok",
+        "docs": "/docs",
+        "health": "/api/health",
+        "cases": "/api/cases",
+    }
+
+
+@app.get("/api/health", response_model=HealthResponseModel)
+@app.get("/health", response_model=HealthResponseModel)
+def health_check() -> dict[str, Any]:
+    """Liveness and readiness check endpoint."""
+    cache_path = Path(__file__).resolve().parent / "cases_cache.json"
+    cache_ok = cache_path.is_file()
+    return {
+        "status": "ok" if cache_ok else "degraded",
+        "service": "TerraShift API",
+        "version": "2.0.0",
+        "cache_available": cache_ok,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/api/status", response_model=StatusResponseModel)
+def status_endpoint() -> dict[str, Any]:
+    """Detailed system diagnostic status endpoint."""
+    cache_path = Path(__file__).resolve().parent / "cases_cache.json"
+    cache_ok = cache_path.is_file()
+    cases_count = 0
+    live_cache_count = 0
+    if cache_ok:
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                c_data = json.load(f)
+                cases_count = len(c_data.get("cases", []))
+                live_cache_count = len(c_data.get("live_cache", {}))
+        except Exception:
+            pass
+
+    return {
+        "status": "ok" if cache_ok else "degraded",
+        "service": "TerraShift API",
+        "version": "2.0.0",
+        "cache_available": cache_ok,
+        "cases_count": cases_count,
+        "live_cache_count": live_cache_count,
+        "parameters": list(PARAMETER_METADATA.keys()),
+        "environment": os.environ.get("ENVIRONMENT", "development"),
+    }
 
 
 @app.get("/api/parameters")
@@ -360,31 +720,44 @@ def get_parameters() -> dict[str, Any]:
     return {"parameters": PARAMETER_METADATA}
 
 
-@app.get("/api/cases")
+@app.get("/api/cases", response_model=CasesListResponseModel)
 def get_cases() -> dict[str, Any]:
     """Return metadata for the 6 curated Detective Case Files plus parameter registry."""
     return {"cases": list_preset_cases(), "parameters": PARAMETER_METADATA}
 
 
-@app.get("/api/cases/{case_id}")
-async def get_case_detail(case_id: str) -> dict[str, Any]:
-    """Run full investigation on a pre-cached Detective Case File."""
-    preset = get_preset_case_series(case_id)
+@app.get("/api/cases/{case_id}", response_model=InvestigateResponseModel)
+async def get_case_detail(
+    case_id: str,
+    start_year: int | None = Query(default=None, ge=1981, le=2025),
+    end_year: int | None = Query(default=None, ge=1981, le=2025),
+    mk_variant: Literal["standard", "hamed_rao"] = Query(default="standard"),
+) -> dict[str, Any]:
+    """Run full investigation on a pre-cached Detective Case File with optional window slicing."""
+    if start_year is not None and end_year is not None and start_year >= end_year:
+        raise HTTPException(status_code=400, detail="start_year must be strictly less than end_year.")
+
+    preset = get_preset_case_series(case_id, start_year, end_year)
     if preset is None:
         raise HTTPException(status_code=404, detail=f"Case '{case_id}' not found.")
     c = preset["case"]
+    win = c.get("default_window", [1990, 2025])
+    s_yr = start_year if start_year is not None else win[0]
+    e_yr = end_year if end_year is not None else win[1]
+
     req = InvestigateRequest(
         case_id=case_id,
         parameter=c["parameter"],
         primary_point=GeoPoint(**c["primary_point"]),
-        comparison_point=GeoPoint(**c["comparison_point"]),
-        start_year=c["default_window"][0],
-        end_year=c["default_window"][1],
+        comparison_point=GeoPoint(**c["comparison_point"]) if c.get("comparison_point") else None,
+        start_year=s_yr,
+        end_year=e_yr,
+        mk_variant=mk_variant,
     )
     return await investigate_endpoint(req)
 
 
-@app.get("/api/partner-intel")
+@app.get("/api/partner-intel", response_model=PartnerIntelResponseModel)
 async def partner_intel_endpoint(
     lat: float = Query(default=78.22, ge=-90.0, le=90.0),
     lon: float = Query(default=15.63, ge=-180.0, le=180.0),
@@ -393,14 +766,37 @@ async def partner_intel_endpoint(
     end_year: int = Query(default=2025, ge=1981, le=2025),
 ) -> dict[str, Any]:
     """Query live NASA CMR (SWOT/SeaWiFS/MODIS), AppEEARS, CSA GeoMet, NOAA CDO, and deep links."""
-    return await fetch_partner_intel(lat, lon, parameter, start_year, end_year)
+    if start_year >= end_year:
+        raise HTTPException(status_code=400, detail="start_year must be strictly less than end_year.")
+    clean_param = parameter.strip().upper() or "T2M"
+    return await fetch_partner_intel(lat, lon, clean_param, start_year, end_year)
 
 
-@app.post("/api/import-series")
+@app.post("/api/import-series", response_model=InvestigateResponseModel)
 def import_series_endpoint(req: ImportSeriesRequest) -> dict[str, Any]:
     """Parse external CSV/ASCII/.dat from Giovanni, GES DISC Hydrology, AppEEARS, KNMI, or NOAA CDO and analyze."""
     try:
         timestamps, values, detected_meta = parse_external_timeseries(req.raw_text, req.source_hint)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if req.start_year is not None or req.end_year is not None:
+        s_yr = req.start_year or 1800
+        e_yr = req.end_year or 2100
+        filtered = [
+            (ts, val)
+            for ts, val in zip(timestamps, values)
+            if s_yr <= int(ts[:4]) <= e_yr
+        ]
+        if len(filtered) < 24:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Selected window {s_yr}–{e_yr} contains {len(filtered)} records; at least 24 months are required.",
+            )
+        timestamps = [row[0] for row in filtered]
+        values = [row[1] for row in filtered]
+
+    try:
         analysis = analyze_series(
             timestamps=timestamps,
             values=values,
@@ -463,7 +859,7 @@ def import_series_endpoint(req: ImportSeriesRequest) -> dict[str, Any]:
     }
 
 
-@app.post("/api/analyze")
+@app.post("/api/analyze", response_model=AnalyzeResponseModel)
 def analyze_endpoint(req: AnalyzeRequest) -> dict[str, Any]:
     """Run STL decomposition, Mann-Kendall, Sen's slope, Student's t-test, and horizon analysis."""
     timestamps = req.timestamps
@@ -472,15 +868,23 @@ def analyze_endpoint(req: AnalyzeRequest) -> dict[str, Any]:
     comp_timestamps = req.comparison_timestamps
 
     if req.start_year is not None or req.end_year is not None:
-        s_yr = req.start_year or 1900
+        s_yr = req.start_year or 1800
         e_yr = req.end_year or 2100
-        if s_yr >= e_yr:
-            raise HTTPException(status_code=400, detail="start_year must be less than end_year.")
-        filtered = [
-            (ts, val, comp_values[i] if comp_values and i < len(comp_values) else None)
-            for i, (ts, val) in enumerate(zip(timestamps, values))
-            if s_yr <= int(ts[:4]) <= e_yr
-        ]
+        try:
+            filtered = [
+                (ts, val, comp_values[i] if comp_values and i < len(comp_values) else None)
+                for i, (ts, val) in enumerate(zip(timestamps, values))
+                if s_yr <= int(ts[:4]) <= e_yr
+            ]
+        except (ValueError, IndexError) as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid timestamp format encountered: {exc}") from exc
+
+        if len(filtered) < 24:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Filtered window {s_yr}–{e_yr} leaves {len(filtered)} records; at least 24 months are required.",
+            )
+
         timestamps = [row[0] for row in filtered]
         values = [row[1] for row in filtered]
         if comp_values is not None:
@@ -499,12 +903,9 @@ def analyze_endpoint(req: AnalyzeRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/api/investigate")
+@app.post("/api/investigate", response_model=InvestigateResponseModel)
 async def investigate_endpoint(req: InvestigateRequest) -> dict[str, Any]:
     """Hybrid NASA POWER fetch + STL & non-parametric trend investigation."""
-    if req.start_year >= req.end_year:
-        raise HTTPException(status_code=400, detail="start_year must be strictly less than end_year.")
-
     param = req.parameter.upper()
     primary_data: dict[str, Any] | None = None
     comp_data: dict[str, Any] | None = None
@@ -546,6 +947,11 @@ async def investigate_endpoint(req: InvestigateRequest) -> dict[str, Any]:
             )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Observation fetch error: {exc}") from exc
+
+    if primary_data is None:
+        raise HTTPException(status_code=500, detail="Failed to retrieve observation series for primary point.")
 
     try:
         analysis = analyze_series(
@@ -623,7 +1029,7 @@ async def investigate_endpoint(req: InvestigateRequest) -> dict[str, Any]:
     }
 
 
-@app.post("/api/explain")
+@app.post("/api/explain", response_model=DetectiveBriefModel)
 async def explain_endpoint(req: ExplainRequest) -> dict[str, Any]:
     """Generate structured physical grounding brief (deterministic template + optional Gemini)."""
     baseline = _build_deterministic_brief(
@@ -642,3 +1048,12 @@ async def explain_endpoint(req: ExplainRequest) -> dict[str, Any]:
         case_id=req.case_id,
     )
     return await _maybe_enhance_with_gemini(req, baseline)
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    host = os.environ.get("HOST", "0.0.0.0")
+    port = int(os.environ.get("PORT", "8000"))
+    reload = os.environ.get("ENVIRONMENT", "development").lower() == "development"
+    uvicorn.run("main:app", host=host, port=port, reload=reload)

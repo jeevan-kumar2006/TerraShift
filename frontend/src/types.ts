@@ -16,6 +16,9 @@ export interface ParameterMeta {
   parameter_name: string;
   unit: string;
   mission_source: string;
+  collection?: string;
+  data_type?: string;
+  temporal_resolution?: string;
   resolution: string;
   plain_definition: string;
   question: string;
@@ -33,7 +36,7 @@ export interface PresetCaseMeta {
   unit: string;
   mission_label: string;
   primary_point: GeoPoint;
-  comparison_point: GeoPoint;
+  comparison_point: GeoPoint | null;
   default_window: [number, number];
   data_source: string;
   cached: boolean;
@@ -98,6 +101,18 @@ export interface InvestigateRequestPayload {
   mk_variant: "standard" | "hamed_rao";
 }
 
+export interface ImportSeriesRequestPayload {
+  raw_text: string;
+  source_hint?: string;
+  region_name?: string;
+  lat?: number;
+  lon?: number;
+  unit?: string | null;
+  mk_variant?: "standard" | "hamed_rao";
+  start_year?: number | null;
+  end_year?: number | null;
+}
+
 export interface InvestigateResponse {
   request: InvestigateRequestPayload;
   response: {
@@ -154,4 +169,36 @@ export interface PartnerIntelResponse {
   csa_geomet_stations: CsaStation[];
   noaa_cdo_status: string;
   deep_links: PartnerDeepLink[];
+}
+
+export interface ApiHealthResponse {
+  status: string;
+  service: string;
+  version: string;
+  cache_available: boolean;
+  timestamp?: string;
+}
+
+export interface ApiStatusResponse {
+  status: string;
+  service: string;
+  version: string;
+  cache_available: boolean;
+  cases_count: number;
+  live_cache_count: number;
+  parameters: string[];
+  environment: string;
+}
+
+export interface ApiErrorDetail {
+  loc?: (string | number)[];
+  msg: string;
+  type?: string;
+}
+
+export interface ApiErrorResponse {
+  detail: string | ApiErrorDetail[];
+  error?: boolean;
+  error_type?: string;
+  status_code?: number;
 }

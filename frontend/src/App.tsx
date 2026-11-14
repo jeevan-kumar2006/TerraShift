@@ -90,6 +90,23 @@ function buildSampleKnmiDat(): string {
   return rows.join("\n");
 }
 
+const API_BASE = ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+
+function parseApiErrorMessage(errJson: unknown, defaultMessage: string): string {
+  if (!errJson || typeof errJson !== "object") return defaultMessage;
+  const payload = errJson as { detail?: unknown; message?: unknown };
+  if (typeof payload.detail === "string") return payload.detail;
+  if (Array.isArray(payload.detail)) {
+    return payload.detail
+      .map((d: any) =>
+        d.msg ? `${d.loc ? d.loc.filter((x: any) => x !== "body").join(".") + ": " : ""}${d.msg}` : JSON.stringify(d)
+      )
+      .join("; ");
+  }
+  if (typeof payload.message === "string") return String(payload.message);
+  return defaultMessage;
+}
+
 export default function App() {
   const [cases, setCases] = useState<PresetCaseMeta[]>([]);
   const [parameters, setParameters] = useState<Record<string, ParameterMeta>>({});
@@ -115,6 +132,7 @@ export default function App() {
   const [showTooltip, setShowTooltip] = useState<boolean>(false);
   const [dossierOpen, setDossierOpen] = useState<boolean>(false);
   const [fitVersion, setFitVersion] = useState<number>(1);
+  const [apiOnline, setApiOnline] = useState<boolean | null>(null);
 
   // Multi-Agency Partner Hub & Universal Series Importer states
   const [showPartnerHub, setShowPartnerHub] = useState<boolean>(false);
@@ -140,7 +158,7 @@ export default function App() {
           start_year: String(sYr),
           end_year: String(eYr),
         });
-        const resp = await fetch(`/api/partner-intel?${qs.toString()}`);
+        const resp = await fetch(`${API_BASE}/api/partner-intel?${qs.toString()}`);
         if (resp.ok) {
           const data: PartnerIntelResponse = await resp.json();
           setPartnerIntel(data);
@@ -181,7 +199,7 @@ export default function App() {
       setError(null);
 
       try {
-        const resp = await fetch("/api/investigate", {
+        const resp = await fetch(`${API_BASE}/api/investigate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: controller.signal,
@@ -197,10 +215,11 @@ export default function App() {
         });
         if (!resp.ok) {
           const errJson = await resp.json().catch(() => ({}));
-          throw new Error(errJson.detail || `Backend returned HTTP ${resp.status}`);
+          throw new Error(parseApiErrorMessage(errJson, `Backend returned HTTP ${resp.status}`));
         }
         const data: InvestigateResponse = await resp.json();
         setResult(data);
+        setApiOnline(true);
         fetchPartnerMetadata(targetA.lat, targetA.lon, targetParam, targetWin[0], targetWin[1]);
       } catch (err) {
         if ((err as Error).name === "AbortError") return;
@@ -212,43 +231,53 @@ export default function App() {
     [caseId, fetchPartnerMetadata, mkVariant, parameter, pointA, pointB, windowRange]
   );
 
+  const loadInitialCases = useCallback(async () => {
+    try {
+      const [healthResp, casesResp] = await Promise.allSettled([
+        fetch(`${API_BASE}/api/health`),
+        fetch(`${API_BASE}/api/cases`),
+      ]);
+      if (healthResp.status === "fulfilled" && healthResp.value.ok) {
+        setApiOnline(true);
+      } else {
+        setApiOnline(false);
+      }
+
+      if (casesResp.status === "fulfilled" && casesResp.value.ok) {
+        const data = await casesResp.value.json();
+        setCases(data.cases || []);
+        setParameters(data.parameters || {});
+        const initial =
+          (data.cases || []).find((c: PresetCaseMeta) => c.case_id === "case_3_arctic") ||
+          data.cases?.[0];
+        if (initial) {
+          setCaseId(initial.case_id);
+          setParameter(initial.parameter);
+          setPointA(initial.primary_point);
+          setPointB(initial.comparison_point);
+          setWindowRange(initial.default_window);
+          setFitVersion((v) => v + 1);
+          await runInvestigation({
+            nextCaseId: initial.case_id,
+            nextParam: initial.parameter,
+            nextA: initial.primary_point,
+            nextB: initial.comparison_point,
+            nextWindow: initial.default_window,
+          });
+          return;
+        }
+      }
+    } catch {
+      setApiOnline(false);
+    }
+    await runInvestigation();
+  }, [runInvestigation]);
+
   useEffect(() => {
     let mounted = true;
-    (async () => {
-      try {
-        const resp = await fetch("/api/cases");
-        if (resp.ok) {
-          const data = await resp.json();
-          if (!mounted) return;
-          setCases(data.cases || []);
-          setParameters(data.parameters || {});
-          const initial =
-            (data.cases || []).find((c: PresetCaseMeta) => c.case_id === "case_3_arctic") ||
-            data.cases?.[0];
-          if (initial) {
-            setCaseId(initial.case_id);
-            setParameter(initial.parameter);
-            setPointA(initial.primary_point);
-            setPointB(initial.comparison_point);
-            setWindowRange(initial.default_window);
-            setFitVersion((v) => v + 1);
-            await runInvestigation({
-              nextCaseId: initial.case_id,
-              nextParam: initial.parameter,
-              nextA: initial.primary_point,
-              nextB: initial.comparison_point,
-              nextWindow: initial.default_window,
-            });
-            return;
-          }
-        }
-      } catch {
-        // fallback initial run
-      }
-      if (mounted) {
-        await runInvestigation();
-      }
-    })();
+    if (mounted) {
+      loadInitialCases();
+    }
     return () => {
       mounted = false;
     };
@@ -344,16 +373,21 @@ export default function App() {
     if (!pointA) return;
     if (debounceRef.current) window.clearTimeout(debounceRef.current);
     debounceRef.current = window.setTimeout(() => {
-      runInvestigation({ nextWindow });
+      if (caseId === "imported_agency_series" && importText.trim()) {
+        handleRunImportedSeries(nextWindow);
+      } else {
+        runInvestigation({ nextWindow });
+      }
     }, 220);
   };
 
-  const handleRunImportedSeries = async () => {
+  const handleRunImportedSeries = async (customWindow?: [number, number]) => {
     if (!importText.trim()) return;
     setLoading(true);
     setError(null);
     try {
-      const resp = await fetch("/api/import-series", {
+      const win = customWindow ?? windowRange;
+      const resp = await fetch(`${API_BASE}/api/import-series`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -364,11 +398,13 @@ export default function App() {
           lon: pointA?.lon ?? -89.25,
           unit: importUnit,
           mk_variant: mkVariant,
+          start_year: win[0],
+          end_year: win[1],
         }),
       });
       if (!resp.ok) {
         const errJson = await resp.json().catch(() => ({}));
-        throw new Error(errJson.detail || `Import failed with HTTP ${resp.status}`);
+        throw new Error(parseApiErrorMessage(errJson, `Import failed with HTTP ${resp.status}`));
       }
       const data: InvestigateResponse = await resp.json();
       setMode("custom");
@@ -416,6 +452,11 @@ export default function App() {
 
             {/* Status, Partner Hub, Importer & Dossier Triggers */}
             <div className="flex flex-wrap items-center gap-2">
+              {apiOnline === false && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-xs font-medium text-rose-300">
+                  <WifiOff className="h-3.5 w-3.5" /> API Offline
+                </span>
+              )}
               {dataStatus === "cache" && (
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
                   <Database className="h-3.5 w-3.5" /> Cached Case / Instant
@@ -731,8 +772,19 @@ export default function App() {
         </header>
 
         {error && (
-          <div className="rounded-xl border border-rose-500/40 bg-rose-950/60 px-4 py-3 text-xs text-rose-200">
-            <strong>Investigation Error:</strong> {error}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-500/40 bg-rose-950/60 px-4 py-3 text-xs text-rose-200">
+            <div>
+              <strong>Investigation Error:</strong> {error}
+            </div>
+            {cases.length === 0 && (
+              <button
+                type="button"
+                onClick={() => loadInitialCases()}
+                className="rounded-lg border border-rose-400/50 bg-rose-900/60 px-2.5 py-1 text-xs font-semibold text-rose-100 hover:bg-rose-800"
+              >
+                Retry Connection
+              </button>
+            )}
           </div>
         )}
 
@@ -928,7 +980,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={handleRunImportedSeries}
+                  onClick={() => handleRunImportedSeries()}
                   className="rounded-lg bg-cyan-500 px-4 py-1.5 font-bold text-slate-950 hover:bg-cyan-400"
                 >
                   Decompose &amp; Analyze Series
