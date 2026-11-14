@@ -21,6 +21,11 @@
   border: none;
 }
 
+/* Dark theme filter for OpenStreetMap tiles so dark mode never depends on CARTO/Mapbox */
+.osm-dark-tiles .leaflet-tile-pane {
+  filter: invert(100%) hue-rotate(180deg) brightness(92%) contrast(90%) saturate(75%);
+}
+
 /* Smooth range input styling */
 input[type="range"] {
   accent-color: #22d3ee;

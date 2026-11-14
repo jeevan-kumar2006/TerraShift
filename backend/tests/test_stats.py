@@ -149,11 +149,12 @@ def test_fastapi_analyze_endpoint():
     assert body["primary_stats"]["observation_months"] == 48
 
 
-def test_preset_cases_and_latency():
+def test_preset_cases_and_latency(monkeypatch):
     import time
     from fastapi.testclient import TestClient
     from main import app
 
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     client = TestClient(app)
     cases_resp = client.get("/api/cases")
     assert cases_resp.status_code == 200

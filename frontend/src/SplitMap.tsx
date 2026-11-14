@@ -239,12 +239,13 @@ export default function SplitMap({
     }
 
     return {
-      key: "fallback-dark",
-      url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; CARTO',
+      key: "osm-dark",
+      url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       tileSize: 256,
       zoomOffset: 0,
-      providerBadge: "Dark Vector (Mapbox Ready)",
+      providerBadge: "Leaflet + OpenStreetMap (Dark)",
+      isOsmDark: true,
     };
   }, [mapboxToken, styleMode, useMapboxTiles]);
 
@@ -431,7 +432,7 @@ export default function SplitMap({
       )}
 
       {/* Map Canvas */}
-      <div className="relative h-[340px] w-full sm:h-[380px]">
+      <div className={`relative h-[340px] w-full sm:h-[380px] ${(tileConfig as { isOsmDark?: boolean }).isOsmDark ? "osm-dark-tiles" : ""}`}>
         <MapContainer
           center={[20, 0]}
           zoom={2}

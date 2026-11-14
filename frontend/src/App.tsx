@@ -776,7 +776,20 @@ export default function App() {
         {result && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-xs text-slate-300">
             <div className="max-w-4xl">
-              <p className="font-semibold text-cyan-200">{result.response.detective_brief.verdict_headline}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="font-semibold text-cyan-200">{result.response.detective_brief.verdict_headline}</p>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    result.response.detective_brief.ai_enhanced
+                      ? "border border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                      : "border border-slate-700 bg-slate-800 text-slate-300"
+                  }`}
+                >
+                  {result.response.detective_brief.ai_enhanced
+                    ? "Gemini AI Grounded"
+                    : "NASA Physics Synthesis"}
+                </span>
+              </div>
               <p className="mt-0.5 text-slate-400">{result.response.detective_brief.physical_mechanism}</p>
               <p className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500">
                 <BookOpen className="h-3.5 w-3.5 text-cyan-400" />

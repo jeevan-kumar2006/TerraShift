@@ -5,7 +5,27 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from pathlib import Path
 from typing import Any, Literal
+
+
+def _load_local_env() -> None:
+    """Load key=value pairs from backend/.env into os.environ without overwriting existing vars."""
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.is_file():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, value)
+
+
+_load_local_env()
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
@@ -293,33 +313,39 @@ async def _maybe_enhance_with_gemini(req: ExplainRequest, baseline: dict[str, An
         f"- Physical grounding draft: {baseline['physical_mechanism']}\n"
         "Keep every sentence crisp, accurate to the numbers above, and student-accessible (max 2 sentences per field)."
     )
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    models = ("gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-3.8-flash")
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"responseMimeType": "application/json", "temperature": 0.3},
     }
 
-    try:
-        async with httpx.AsyncClient(timeout=4.0) as client:
-            resp = await client.post(url, json=body)
-            resp.raise_for_status()
-            data = resp.json()
-        raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
-        parsed = json.loads(raw_text)
-        for key in ("verdict_headline", "physical_mechanism", "seasonality_note", "horizon_note", "reference"):
-            if not isinstance(parsed.get(key), str) or not parsed[key].strip():
-                return baseline
-        return {
-            **baseline,
-            "verdict_headline": parsed["verdict_headline"].strip(),
-            "physical_mechanism": parsed["physical_mechanism"].strip(),
-            "seasonality_note": parsed["seasonality_note"].strip(),
-            "horizon_note": parsed["horizon_note"].strip(),
-            "reference": parsed["reference"].strip(),
-            "ai_enhanced": True,
-        }
-    except Exception:
-        return baseline
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        for model in models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+            try:
+                resp = await client.post(url, json=body)
+                resp.raise_for_status()
+                data = resp.json()
+                raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
+                parsed = json.loads(raw_text)
+                if any(
+                    not isinstance(parsed.get(key), str) or not parsed[key].strip()
+                    for key in ("verdict_headline", "physical_mechanism", "seasonality_note", "horizon_note", "reference")
+                ):
+                    continue
+                return {
+                    **baseline,
+                    "verdict_headline": parsed["verdict_headline"].strip(),
+                    "physical_mechanism": parsed["physical_mechanism"].strip(),
+                    "seasonality_note": parsed["seasonality_note"].strip(),
+                    "horizon_note": parsed["horizon_note"].strip(),
+                    "reference": parsed["reference"].strip(),
+                    "ai_enhanced": True,
+                }
+            except Exception:
+                continue
+
+    return baseline
 
 
 @app.get("/api/health")
@@ -549,6 +575,23 @@ async def investigate_endpoint(req: InvestigateRequest) -> dict[str, Any]:
         cross_correlation_r=tc["cross_correlation_r"],
         case_id=req.case_id,
     )
+    if os.environ.get("GEMINI_API_KEY", "").strip():
+        explain_req = ExplainRequest(
+            lat=req.primary_point.lat,
+            lon=req.primary_point.lon,
+            parameter=param,
+            sens_slope_per_year=ps["sens_slope_per_year"],
+            p_value=ps["p_value"],
+            variance_reduction_pct=ps["variance_reduction_pct"],
+            years_to_significance=ps["years_to_significance"],
+            observation_years=ps["observation_years"],
+            region_name=req.primary_point.name,
+            comparison_name=req.comparison_point.name if req.comparison_point else None,
+            comparison_slope_per_year=tc["comparison_sens_slope_per_year"],
+            cross_correlation_r=tc["cross_correlation_r"],
+            case_id=req.case_id,
+        )
+        brief = await _maybe_enhance_with_gemini(explain_req, brief)
 
     statuses = [primary_data["data_status"]]
     if comp_data:
