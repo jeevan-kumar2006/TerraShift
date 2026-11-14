@@ -147,3 +147,84 @@ def test_fastapi_analyze_endpoint():
     assert "primary_series" in body
     assert "primary_stats" in body
     assert body["primary_stats"]["observation_months"] == 48
+
+
+def test_preset_cases_and_latency():
+    import time
+    from fastapi.testclient import TestClient
+    from main import app
+
+    client = TestClient(app)
+    cases_resp = client.get("/api/cases")
+    assert cases_resp.status_code == 200
+    cases = cases_resp.json()["cases"]
+    assert len(cases) == 4
+    assert all(c["cached"] is True for c in cases)
+
+    for c in cases:
+        t0 = time.perf_counter()
+        detail = client.get(f"/api/cases/{c['case_id']}")
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        assert detail.status_code == 200
+        assert elapsed_ms < 250.0  # fast local cache path
+        payload = detail.json()
+        assert payload["response"]["data_status"] == "cache"
+        assert len(payload["response"]["primary_series"]["timestamps"]) >= 400
+        assert payload["response"]["teleconnection"]["enabled"] is True
+
+
+def test_investigate_and_explain_endpoints_and_offline_fallback(monkeypatch):
+    import asyncio
+    from fastapi.testclient import TestClient
+    import httpx
+    from main import app
+    from nasa_service import fetch_nasa_monthly
+
+    client = TestClient(app)
+
+    # Test Case 2 Hydro Dipole opposite trends
+    inv = client.post(
+        "/api/investigate",
+        json={
+            "case_id": "case_2_dipole",
+            "parameter": "GWETROOT",
+            "primary_point": {"name": "US Southwest", "lat": 34.5, "lon": -108.0},
+            "comparison_point": {"name": "Upper Midwest", "lat": 46.0, "lon": -94.0},
+            "start_year": 1990,
+            "end_year": 2025,
+        },
+    )
+    assert inv.status_code == 200
+    r = inv.json()["response"]
+    assert r["primary_stats"]["sens_slope_per_year"] < 0
+    assert r["primary_stats"]["is_significant"] is True
+    assert r["teleconnection"]["comparison_sens_slope_per_year"] > 0
+    assert r["teleconnection"]["comparison_is_significant"] is True
+
+    # Test /api/explain deterministic fallback (no GEMINI_API_KEY)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    exp = client.post(
+        "/api/explain",
+        json={
+            "lat": 78.22,
+            "lon": 15.63,
+            "parameter": "T2M",
+            "sens_slope_per_year": 0.0829,
+            "p_value": 0.0,
+            "variance_reduction_pct": 87.4,
+            "region_name": "Svalbard Archipelago",
+            "case_id": "case_3_arctic",
+        },
+    )
+    assert exp.status_code == 200
+    assert "Arctic Amplification" in exp.json()["physical_mechanism"]
+    assert exp.json()["ai_enhanced"] is False
+
+    # Test offline fallback when httpx raises RequestError for an uncached coordinate
+    async def broken_get(*args, **kwargs):
+        raise httpx.ConnectError("Simulated network outage")
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", broken_get)
+    fallback = asyncio.run(fetch_nasa_monthly(77.5, 16.0, "T2M", 1995, 2025))
+    assert fallback["data_status"] == "offline_fallback"
+    assert len(fallback["timestamps"]) > 300
