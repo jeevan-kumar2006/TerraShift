@@ -1,7 +1,9 @@
-const rawApiBaseUrl =
-  ((import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL ?? "").trim();
+const rawApiBaseUrl = (
+  (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL ||
+  "http://localhost:8000"
+).trim();
 
-export const API_BASE_URL = rawApiBaseUrl.replace(/\/$/, "");
+export const API_BASE_URL = rawApiBaseUrl.replace(/\/+$/, "");
 
 export const STATISTICAL_ALPHA = 0.05;
 

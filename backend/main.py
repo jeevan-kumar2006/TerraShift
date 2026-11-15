@@ -121,20 +121,11 @@ app = FastAPI(
 
 
 def _get_cors_origins() -> list[str]:
-    """Retrieve allowed CORS origins from environment variable or standard defaults."""
-    raw = os.environ.get("CORS_ORIGINS", "").strip()
-    if raw:
-        return [o.strip() for o in raw.split(",") if o.strip()]
-    return [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:4173",
-        "http://127.0.0.1:4173",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-    ]
+    """Retrieve allowed CORS origins from ALLOWED_ORIGINS (or CORS_ORIGINS) env var, defaulting to '*'."""
+    raw = (os.environ.get("ALLOWED_ORIGINS") or os.environ.get("CORS_ORIGINS") or "*").strip()
+    if not raw or raw == "*":
+        return ["*"]
+    return [o.strip() for o in raw.split(",") if o.strip()]
 
 
 _origins = _get_cors_origins()
@@ -142,8 +133,7 @@ _has_wildcard = "*" in _origins
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_origins if not _has_wildcard else ["*"],
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$" if not _has_wildcard else None,
+    allow_origins=["*"] if _has_wildcard else _origins,
     allow_credentials=not _has_wildcard,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -581,8 +571,13 @@ def root_info() -> dict[str, str]:
     }
 
 
+@app.get("/health")
+def liveness_health() -> dict[str, str]:
+    """Lightweight Render health check endpoint with zero heavy imports or disk/stats work."""
+    return {"status": "ok"}
+
+
 @app.get("/api/health", response_model=HealthResponseModel)
-@app.get("/health", response_model=HealthResponseModel)
 def health_check() -> dict[str, Any]:
     """Liveness and readiness check endpoint."""
     cache_path = Path(__file__).resolve().parent / "cases_cache.json"

@@ -33,6 +33,7 @@ import DataAcquisitionView from "./DataAcquisitionView";
 import IndiaRegionalView from "./IndiaRegionalView";
 import GuidedTour, { INDIA_GUIDED_TOURS, type GuidedTourConfig } from "./GuidedTour";
 import { API_BASE_URL } from "./config";
+import { useColdStartStatus } from "./useColdStartStatus";
 import type {
   GeoPoint,
   InvestigateResponse,
@@ -89,6 +90,7 @@ function parseApiErrorMessage(errJson: unknown, defaultMessage: string): string 
 }
 
 export default function App() {
+  const isColdStartWaiting = useColdStartStatus();
   const [cases, setCases] = useState<PresetCaseMeta[]>([]);
   const [parameters, setParameters] = useState<Record<string, ParameterMeta>>({});
   const [satelliteVariables, setSatelliteVariables] = useState<SatelliteVariable[]>([]);
@@ -786,6 +788,22 @@ export default function App() {
       </nav>
 
       <div className="app-shell-hide-on-print mx-auto flex max-w-[1440px] flex-col gap-5 px-4 py-5 sm:px-6">
+        {isColdStartWaiting && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex items-center gap-3 rounded-xl border border-cyan-500/40 bg-cyan-950/75 px-4 py-3 text-xs text-cyan-100 shadow-lg backdrop-blur"
+          >
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-cyan-400" />
+            <span>
+              <strong className="font-semibold text-cyan-200">
+                Waking up climate analysis server, this takes ~45 seconds on first load...
+              </strong>{" "}
+              Your data will appear automatically once the backend responds.
+            </span>
+          </div>
+        )}
+
         {dataStatus === "synthetic" && (
           <div className="rounded-xl border border-rose-500/40 bg-rose-950/40 px-4 py-2.5 text-xs text-rose-200">
             <strong>SYNTHETIC DEMO DATA ACTIVE:</strong> The current series was generated for format demonstration and testing only. It does not represent real NASA or partner agency observations.
