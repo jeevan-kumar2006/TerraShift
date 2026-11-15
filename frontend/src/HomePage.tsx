@@ -13,6 +13,7 @@ import {
   Target,
 } from "lucide-react";
 import type { InvestigateResponse, PresetCaseMeta } from "./types";
+import { ScrollTextOverlay } from "./ScrollTextOverlay";
 
 export type NavSection =
   | "home"
@@ -327,6 +328,8 @@ export default function HomePage({
           </div>
         </section>
       )}
+
+      <ScrollTextOverlay onExplore={() => onNavigate("explore")} />
 
       <section className="home-cta">
         <div className="cta-stars" aria-hidden="true" />
