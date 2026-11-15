@@ -13,6 +13,8 @@ import {
 import { AlertCircle, Download, Loader2, Printer, Sparkles, X } from "lucide-react";
 import type { DetectiveBrief, GeoPoint, InvestigateResponse } from "./types";
 
+const API_BASE = ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+
 interface DossierModalProps {
   investigation: InvestigateResponse;
   pointA: GeoPoint;
@@ -72,7 +74,7 @@ export default function DossierModal({
     setExplaining(true);
     setExplainError(null);
     try {
-      const resp = await fetch("/api/explain", {
+      const resp = await fetch(`${API_BASE}/api/explain`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -95,6 +97,12 @@ export default function DossierModal({
           missing_pct: primary_stats.missing_pct ?? null,
         }),
       });
+      const contentType = resp.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error(
+          `Backend /api/explain returned non-JSON (${contentType || "unknown"}, HTTP ${resp.status}). Check VITE_API_BASE_URL.`
+        );
+      }
       if (resp.ok) {
         const updated: DetectiveBrief = await resp.json();
         setBrief(updated);
