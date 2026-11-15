@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ArrowRight,
+  BarChart3,
   BookOpen,
   Compass,
   Database,
@@ -7,18 +9,25 @@ import {
   FileText,
   Globe2,
   HelpCircle,
+  Home,
+  LineChart,
   Loader2,
   MapPin,
+  Menu,
   Play,
   Satellite,
   Sparkles,
   Upload,
   Wifi,
   WifiOff,
+  X,
 } from "lucide-react";
 import SplitMap from "./SplitMap";
 import TrendLab from "./TrendLab";
 import DossierModal from "./DossierModal";
+import HomePage, { type NavSection } from "./HomePage";
+import StatsDashboard from "./StatsDashboard";
+import { AboutView, HelpGuideView } from "./AboutAndHelp";
 import type {
   GeoPoint,
   InvestigateResponse,
@@ -418,6 +427,7 @@ export default function App() {
       setWindowRange([data.request.start_year, data.request.end_year]);
       setResult(data);
       setShowImportModal(false);
+      setActiveSection("analysis");
     } catch (err) {
       setError((err as Error).message || "Failed to parse uploaded time series.");
     } finally {
@@ -425,106 +435,240 @@ export default function App() {
     }
   };
 
+  const [activeSection, setActiveSection] = useState<NavSection>("home");
+  const [mobileNavOpen, setMobileNavOpen] = useState<boolean>(false);
+
+  const handleNavigate = (section: NavSection) => {
+    setActiveSection(section);
+    setMobileNavOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleSelectCaseAndExplore = (selectedCaseId: string, targetSection: NavSection) => {
+    const found = cases.find((c) => c.case_id === selectedCaseId);
+    if (found) {
+      handleSelectCase(found);
+    }
+    handleNavigate(targetSection);
+  };
+
   const activeMeta = parameters[parameter] ?? result?.response.metadata;
   const activeStep = !pointA ? 2 : result ? 3 : 2;
   const dataStatus = result?.response.data_status;
 
+  const navItems: { id: NavSection; label: string; icon: typeof Home }[] = [
+    { id: "home", label: "Home", icon: Home },
+    { id: "explore", label: "Explore Data", icon: Compass },
+    { id: "analysis", label: "Trend Analysis", icon: LineChart },
+    { id: "results", label: "Statistical Results", icon: BarChart3 },
+    { id: "about", label: "About", icon: Database },
+    { id: "help", label: "Help / Guide", icon: BookOpen },
+  ];
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="app-shell-hide-on-print mx-auto flex max-w-[1440px] flex-col gap-4 px-4 py-4 sm:px-6">
-        {/* Brand & 3-Step Detective Wizard Header */}
-        <header className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-900/95 to-slate-950 p-4 shadow-xl">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/15 ring-1 ring-cyan-400/40">
-                <Satellite className="h-5 w-5 text-cyan-300" />
-              </div>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-lg font-bold tracking-tight text-white sm:text-xl">
-                    TerraShift
-                  </h1>
-                  <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-cyan-300">
-                    NASA · CSA · KNMI · NOAA Trend Detective
-                  </span>
-                </div>
-                <p className="text-xs text-slate-400">
-                  Strip seasonal cycles via STL decomposition, validate trends with Mann-Kendall &amp; Sen&apos;s slope, and inspect global teleconnections.
-                </p>
-              </div>
+    <div className="min-h-screen bg-[#060b16] text-slate-100">
+      {/* Clean Top Navigation Bar */}
+      <nav className="app-shell-hide-on-print sticky top-0 z-40 border-b border-slate-800/90 bg-slate-950/90 backdrop-blur-md">
+        <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <button
+            type="button"
+            onClick={() => handleNavigate("home")}
+            className="flex items-center gap-2.5 text-left"
+          >
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-500/15 ring-1 ring-cyan-400/40">
+              <Satellite className="h-5 w-5 text-cyan-300" />
             </div>
+            <div>
+              <p className="text-sm font-extrabold tracking-tight text-white sm:text-base">
+                TerraShift
+              </p>
+              <p className="hidden text-[10px] text-slate-400 sm:block">
+                Earth System Trend Detective
+              </p>
+            </div>
+          </button>
 
-            {/* Status, Partner Hub, Importer & Dossier Triggers */}
-            <div className="flex flex-wrap items-center gap-2">
-              {apiOnline === false && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-xs font-medium text-rose-300">
-                  <WifiOff className="h-3.5 w-3.5" /> API Offline
-                </span>
-              )}
-              {dataStatus === "cache" && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
-                  <Database className="h-3.5 w-3.5" /> Cached Case / Instant
-                </span>
-              )}
-              {dataStatus === "live" && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-medium text-cyan-300">
-                  <Wifi className="h-3.5 w-3.5" /> Live Agency Data
-                </span>
-              )}
-              {dataStatus === "offline_fallback" && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-300">
-                  <WifiOff className="h-3.5 w-3.5" /> Offline Cache Fallback
-                </span>
-              )}
-              {dataStatus === "imported" && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-xs font-medium text-indigo-300">
-                  <Upload className="h-3.5 w-3.5" /> Imported Agency Data
-                </span>
-              )}
-              {dataStatus === "synthetic" && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/40 bg-rose-500/15 px-3 py-1 text-xs font-semibold text-rose-200">
-                  Synthetic Demo Data (Not NASA Observations)
-                </span>
-              )}
+          {/* Desktop Navigation Links */}
+          <div className="hidden items-center gap-1 lg:flex">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeSection === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleNavigate(item.id)}
+                  className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                    isActive
+                      ? "bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-400/40"
+                      : "text-slate-300 hover:bg-slate-900 hover:text-white"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
 
-              <button
-                type="button"
-                onClick={() => setShowPartnerHub((s) => !s)}
-                className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
-                  showPartnerHub
-                    ? "border-cyan-400 bg-cyan-500/20 text-cyan-200"
-                    : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
-                }`}
-              >
-                <Globe2 className="h-3.5 w-3.5 text-cyan-400" />
-                NASA / CSA / Partner Hub
-              </button>
+          {/* Right Status + Field Dossier + Mobile Menu */}
+          <div className="flex items-center gap-2">
+            {apiOnline === false && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[11px] font-medium text-rose-300">
+                <WifiOff className="h-3 w-3" /> Offline
+              </span>
+            )}
+            {dataStatus === "cache" && (
+              <span className="hidden items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300 sm:inline-flex">
+                <Database className="h-3 w-3" /> Cached
+              </span>
+            )}
+            {dataStatus === "live" && (
+              <span className="hidden items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-medium text-cyan-300 sm:inline-flex">
+                <Wifi className="h-3 w-3" /> Live NASA
+              </span>
+            )}
+            {dataStatus === "synthetic" && (
+              <span className="hidden items-center gap-1 rounded-full border border-rose-500/40 bg-rose-500/15 px-2.5 py-1 text-[11px] font-semibold text-rose-200 sm:inline-flex">
+                Synthetic Demo
+              </span>
+            )}
 
-              <button
-                type="button"
-                onClick={() => {
-                  if (!importText) {
-                    setImportText(buildSampleGiovanniCsv());
-                  }
-                  setShowImportModal(true);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-500/40 bg-indigo-500/15 px-3 py-2 text-xs font-semibold text-indigo-200 transition hover:bg-indigo-500/25"
-              >
-                <Upload className="h-3.5 w-3.5" />
-                Import Giovanni / KNMI CSV
-              </button>
+            <button
+              type="button"
+              disabled={!result}
+              onClick={() => setDossierOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-950 shadow transition hover:bg-cyan-200 disabled:opacity-40"
+            >
+              <FileText className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Field Dossier</span>
+            </button>
 
-              <button
-                type="button"
-                disabled={!result}
-                onClick={() => setDossierOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-slate-100 px-3.5 py-2 text-xs font-bold text-slate-950 shadow transition hover:bg-cyan-200 disabled:opacity-40"
-              >
-                <FileText className="h-3.5 w-3.5" />
-                Field Dossier (PDF)
-              </button>
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen((v) => !v)}
+              className="inline-flex items-center justify-center rounded-xl border border-slate-800 bg-slate-900 p-2 text-slate-300 lg:hidden"
+              aria-label="Toggle navigation menu"
+            >
+              {mobileNavOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile Navigation Drawer */}
+        {mobileNavOpen && (
+          <div className="border-t border-slate-800 bg-slate-950 px-4 py-3 lg:hidden">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeSection === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleNavigate(item.id)}
+                    className={`flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                      isActive
+                        ? "bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-400/40"
+                        : "bg-slate-900 text-slate-300 hover:text-white"
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {item.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
+        )}
+      </nav>
+
+      <div className="app-shell-hide-on-print mx-auto flex max-w-[1440px] flex-col gap-5 px-4 py-5 sm:px-6">
+        {dataStatus === "synthetic" && (
+          <div className="rounded-xl border border-rose-500/40 bg-rose-950/40 px-4 py-2.5 text-xs text-rose-200">
+            <strong>SYNTHETIC DEMO DATA ACTIVE:</strong> The current series was generated for format demonstration and testing only. It does not represent real NASA or partner agency observations.
+          </div>
+        )}
+
+        {error && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-500/40 bg-rose-950/60 px-4 py-3 text-xs text-rose-200">
+            <div>
+              <strong>Investigation Error:</strong> {error}
+            </div>
+            {cases.length === 0 && (
+              <button
+                type="button"
+                onClick={() => loadInitialCases()}
+                className="rounded-lg border border-rose-400/50 bg-rose-900/60 px-2.5 py-1 text-xs font-semibold text-rose-100 hover:bg-rose-800"
+              >
+                Retry Connection
+              </button>
+            )}
+          </div>
+        )}
+
+        {activeSection === "home" && (
+          <HomePage
+            cases={cases}
+            activeInvestigation={result}
+            onNavigate={handleNavigate}
+            onSelectCaseAndExplore={handleSelectCaseAndExplore}
+          />
+        )}
+
+        {activeSection === "explore" && (
+          <>
+            {/* Explore Data Control Bar */}
+            <header className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-900/95 to-slate-950 p-4 shadow-xl">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h1 className="text-lg font-bold tracking-tight text-white sm:text-xl">
+                    Explore Earth System Datasets
+                  </h1>
+                  <p className="text-xs text-slate-400">
+                    Choose an environmental variable, click 1–2 regions on the map, and set your time period.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowPartnerHub((s) => !s)}
+                    className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                      showPartnerHub
+                        ? "border-cyan-400 bg-cyan-500/20 text-cyan-200"
+                        : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
+                    }`}
+                  >
+                    <Globe2 className="h-3.5 w-3.5 text-cyan-400" />
+                    NASA / CSA / Partner Hub
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!importText) {
+                        setImportText(buildSampleGiovanniCsv());
+                      }
+                      setShowImportModal(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-500/40 bg-indigo-500/15 px-3 py-2 text-xs font-semibold text-indigo-200 transition hover:bg-indigo-500/25"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    Import Giovanni / KNMI CSV
+                  </button>
+
+                  {result && (
+                    <button
+                      type="button"
+                      onClick={() => handleNavigate("analysis")}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-cyan-500 px-3.5 py-2 text-xs font-bold text-slate-950 transition hover:bg-cyan-400"
+                    >
+                      View Trend Chart
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
 
           {/* 3-Step Detective Progress Strip */}
           <div className="grid grid-cols-1 gap-2 border-t border-slate-800/80 pt-3 sm:grid-cols-3">
@@ -785,57 +929,6 @@ export default function App() {
           )}
         </header>
 
-        {/* 3-Step Investigation Workflow Guide */}
-        <div className="grid grid-cols-1 gap-2 rounded-xl border border-slate-800/80 bg-slate-900/50 px-4 py-2.5 text-xs sm:grid-cols-3">
-          <div className="flex items-center gap-2">
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-500/20 font-mono text-[11px] font-bold text-cyan-300">
-              1
-            </span>
-            <span className="text-slate-300">
-              <strong className="text-slate-100">Choose variable or question</strong> (T2M, PRECTOTCORR, GWETROOT, GWETPROF)
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-500/20 font-mono text-[11px] font-bold text-cyan-300">
-              2
-            </span>
-            <span className="text-slate-300">
-              <strong className="text-slate-100">Select 1–2 regions</strong> on the map or pick a preset case
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-500/20 font-mono text-[11px] font-bold text-cyan-300">
-              3
-            </span>
-            <span className="text-slate-300">
-              <strong className="text-slate-100">Analyze &amp; interpret</strong> STL anomalies, MK p-value, and provenance
-            </span>
-          </div>
-        </div>
-
-        {dataStatus === "synthetic" && (
-          <div className="rounded-xl border border-rose-500/40 bg-rose-950/40 px-4 py-2.5 text-xs text-rose-200">
-            <strong>SYNTHETIC DEMO DATA ACTIVE:</strong> The current series was generated for format demonstration and testing only. It does not represent real NASA or partner agency observations.
-          </div>
-        )}
-
-        {error && (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-500/40 bg-rose-950/60 px-4 py-3 text-xs text-rose-200">
-            <div>
-              <strong>Investigation Error:</strong> {error}
-            </div>
-            {cases.length === 0 && (
-              <button
-                type="button"
-                onClick={() => loadInitialCases()}
-                className="rounded-lg border border-rose-400/50 bg-rose-900/60 px-2.5 py-1 text-xs font-semibold text-rose-100 hover:bg-rose-800"
-              >
-                Retry Connection
-              </button>
-            )}
-          </div>
-        )}
-
         {result?.response.fallback_note && (
           <div className="rounded-xl border border-amber-500/40 bg-amber-950/40 px-4 py-2 text-xs text-amber-200">
             {result.response.fallback_note}
@@ -860,20 +953,124 @@ export default function App() {
           fitVersion={fitVersion}
         />
 
-        {/* Decomposition Lab & Detective Verdict Scorecard */}
-        {result && pointA && (
-          <TrendLab
-            investigation={result}
-            pointA={pointA}
-            pointB={pointB}
-            windowRange={windowRange}
-            onChangeWindow={handleChangeWindow}
-            loading={loading}
-          />
+        {result && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-xs">
+            <div className="text-slate-300">
+              <strong className="text-white">Dataset Ready:</strong>{" "}
+              {result.request.primary_point.name} · {result.response.metadata.parameter_name} (
+              {result.response.primary_stats.observation_months} months, {windowRange[0]}–{windowRange[1]})
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => handleNavigate("analysis")}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500 px-3.5 py-2 text-xs font-bold text-slate-950 transition hover:bg-cyan-400"
+              >
+                <LineChart className="h-3.5 w-3.5" />
+                Open Trend Analysis
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNavigate("results")}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/20 px-3.5 py-2 text-xs font-bold text-emerald-200 ring-1 ring-emerald-500/40 transition hover:bg-emerald-500/30"
+              >
+                <BarChart3 className="h-3.5 w-3.5" />
+                Open Statistical Results
+              </button>
+            </div>
+          </div>
+        )}
+          </>
         )}
 
+        {activeSection === "analysis" && (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3">
+              <div>
+                <h1 className="text-lg font-bold text-white">Time-Series &amp; Trend Analysis</h1>
+                <p className="text-xs text-slate-400">
+                  Switch between Raw Monthly Data, Deseasonalized Trend Lab (with linear regression &amp; 95% CI), and Regional Anomaly Comparison.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleNavigate("explore")}
+                  className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:border-cyan-400"
+                >
+                  Change Region / Variable
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleNavigate("results")}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3.5 py-1.5 text-xs font-bold text-slate-950 hover:bg-emerald-400"
+                >
+                  View Statistical Results
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {result && pointA ? (
+              <TrendLab
+                investigation={result}
+                pointA={pointA}
+                pointB={pointB}
+                windowRange={windowRange}
+                onChangeWindow={handleChangeWindow}
+                loading={loading}
+              />
+            ) : (
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-8 text-center text-sm text-slate-300">
+                Select a dataset or region in{" "}
+                <button
+                  type="button"
+                  onClick={() => handleNavigate("explore")}
+                  className="font-bold text-cyan-300 underline"
+                >
+                  Explore Data
+                </button>{" "}
+                to visualize its time-series trends.
+              </div>
+            )}
+          </>
+        )}
+
+        {activeSection === "results" && (
+          result && pointA ? (
+            <StatsDashboard
+              investigation={result}
+              pointA={pointA}
+              pointB={pointB}
+              mkVariant={mkVariant}
+              onToggleMkVariant={(variant) => {
+                setMkVariant(variant);
+                runInvestigation({ nextMk: variant });
+              }}
+              onOpenDossier={() => setDossierOpen(true)}
+              onGoToCharts={() => handleNavigate("analysis")}
+            />
+          ) : (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-8 text-center text-sm text-slate-300">
+              Run an investigation in{" "}
+              <button
+                type="button"
+                onClick={() => handleNavigate("explore")}
+                className="font-bold text-cyan-300 underline"
+              >
+                Explore Data
+              </button>{" "}
+              to view the Statistical Results Dashboard.
+            </div>
+          )
+        )}
+
+        {activeSection === "about" && <AboutView onNavigate={handleNavigate} />}
+
+        {activeSection === "help" && <HelpGuideView onNavigate={handleNavigate} />}
+
         {/* Detective Brief Summary Strip */}
-        {result && (
+        {result && activeSection !== "home" && activeSection !== "results" && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-xs text-slate-300">
             <div className="max-w-4xl">
               <div className="flex flex-wrap items-center gap-2">

@@ -127,7 +127,7 @@ def mann_kendall_test(y: np.ndarray, variant: str = "standard") -> dict[str, Any
     arr = np.asarray(y, dtype=float)
     n = len(arr)
     if n < 4:
-        return {"tau": 0.0, "z_score": 0.0, "p_value": 1.0, "is_significant": False}
+        return {"s_stat": 0.0, "tau": 0.0, "z_score": 0.0, "p_value": 1.0, "is_significant": False}
 
     # Compute S statistic using upper-triangular pairwise differences
     diff = arr[None, :] - arr[:, None]
@@ -161,7 +161,7 @@ def mann_kendall_test(y: np.ndarray, variant: str = "standard") -> dict[str, Any
                 var_s *= n_s_factor
 
     if var_s <= 0.0:
-        return {"tau": 0.0, "z_score": 0.0, "p_value": 1.0, "is_significant": False}
+        return {"s_stat": float(s_stat), "tau": 0.0, "z_score": 0.0, "p_value": 1.0, "is_significant": False}
 
     if s_stat > 0:
         z_score = (s_stat - 1.0) / math.sqrt(var_s)
@@ -175,6 +175,7 @@ def mann_kendall_test(y: np.ndarray, variant: str = "standard") -> dict[str, Any
     tau = float(s_stat / denom_tau) if denom_tau > 0 else 0.0
 
     return {
+        "s_stat": float(s_stat),
         "tau": tau,
         "z_score": float(z_score),
         "p_value": p_value,
@@ -295,6 +296,8 @@ def _analyze_single(timestamps: list[str], values: list[float | None], mk_varian
     if float(np.std(deseasonalized_anomalies)) < 1e-12:
         ols_slope = 0.0
         ols_intercept = 0.0
+        t_statistic = 0.0
+        degrees_of_freedom = max(1, n - 2)
         t_test_p_value = 1.0
         trend_line = np.zeros(n, dtype=float)
         ci_upper = np.zeros(n, dtype=float)
@@ -304,6 +307,8 @@ def _analyze_single(timestamps: list[str], values: list[float | None], mk_varian
         reg = linregress(x, deseasonalized_anomalies)
         ols_slope = float(reg.slope)
         ols_intercept = float(reg.intercept)
+        degrees_of_freedom = max(1, n - 2)
+        t_statistic = float(ols_slope / reg.stderr) if getattr(reg, "stderr", 0.0) and reg.stderr > 0 else 0.0
         t_test_p_value = float(reg.pvalue)
         trend_line = ols_intercept + ols_slope * x
 
@@ -311,10 +316,28 @@ def _analyze_single(timestamps: list[str], values: list[float | None], mk_varian
         resid_std = math.sqrt(float(np.sum(residuals ** 2)) / max(1, n - 2))
         x_mean = float(np.mean(x))
         s_xx = float(np.sum((x - x_mean) ** 2))
-        t_crit = float(student_t.ppf(0.975, df=max(1, n - 2)))
+        t_crit = float(student_t.ppf(0.975, df=degrees_of_freedom))
         margin = t_crit * resid_std * np.sqrt((1.0 / n) + ((x - x_mean) ** 2) / max(s_xx, 1e-12))
         ci_upper = trend_line + margin
         ci_lower = trend_line - margin
+
+    # Lag-1 autocorrelation check on detrended deseasonalized anomalies
+    detrended_resid = deseasonalized_anomalies - (ols_intercept + ols_slope * x)
+    if n > 3 and float(np.std(detrended_resid)) > 1e-12:
+        r_centered = detrended_resid - float(np.mean(detrended_resid))
+        denom_acf = float(np.sum(r_centered ** 2))
+        lag1_acf = float(np.sum(r_centered[:-1] * r_centered[1:]) / denom_acf) if denom_acf > 0 else 0.0
+        autocorr_sig = abs(lag1_acf) > (1.96 / math.sqrt(n))
+    else:
+        lag1_acf = 0.0
+        autocorr_sig = False
+
+    # Outlier detection (|z| > 3 on detrended deseasonalized anomalies) without deleting points
+    if float(np.std(detrended_resid)) > 1e-12:
+        z_anom = np.abs((detrended_resid - float(np.mean(detrended_resid))) / float(np.std(detrended_resid)))
+        outlier_count = int(np.sum(z_anom > 3.0))
+    else:
+        outlier_count = 0
 
     # 4. Years-to-significance horizon calculation
     # Use Sen's slope (or OLS slope if Sen's slope is degenerate while OLS is non-zero)
@@ -340,9 +363,12 @@ def _analyze_single(timestamps: list[str], values: list[float | None], mk_varian
     }
 
     stats_dict = {
+        "mann_kendall_s": _clean_float(mk_res["s_stat"], 1),
         "mann_kendall_tau": _clean_float(mk_res["tau"], 4),
         "z_score": _clean_float(mk_res["z_score"], 4),
         "p_value": _clean_float(mk_res["p_value"], 6),
+        "t_statistic": _clean_float(t_statistic, 4),
+        "degrees_of_freedom": int(degrees_of_freedom),
         "t_test_p_value": _clean_float(t_test_p_value, 6),
         "raw_p_value": _clean_float(raw_mk["p_value"], 6),
         "is_significant": bool(mk_res["is_significant"]),
@@ -351,6 +377,11 @@ def _analyze_single(timestamps: list[str], values: list[float | None], mk_varian
         "sens_slope_ci_lower": _clean_float(sen_res["sens_slope_ci_lower"], 4),
         "sens_slope_ci_upper": _clean_float(sen_res["sens_slope_ci_upper"], 4),
         "ols_slope_per_year": _clean_float(ols_slope, 4),
+        "ols_slope_per_decade": _clean_float(ols_slope * 10.0, 4),
+        "ols_intercept": _clean_float(ols_intercept, 4),
+        "lag1_autocorrelation": _clean_float(lag1_acf, 4),
+        "autocorrelation_significant": bool(autocorr_sig),
+        "outlier_count": int(outlier_count),
         "years_to_significance": years_needed,
         "estimated_additional_observation_years": years_needed,
         "variance_reduction_pct": _clean_float(variance_reduction_pct, 1),

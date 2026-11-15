@@ -187,9 +187,12 @@ class AnalyzedSeriesModel(BaseModel):
 
 
 class SeriesStatsModel(BaseModel):
+    mann_kendall_s: float | None = None
     mann_kendall_tau: float
     z_score: float
     p_value: float
+    t_statistic: float | None = None
+    degrees_of_freedom: int | None = None
     t_test_p_value: float
     raw_p_value: float
     is_significant: bool
@@ -198,6 +201,11 @@ class SeriesStatsModel(BaseModel):
     sens_slope_ci_lower: float | None = None
     sens_slope_ci_upper: float | None = None
     ols_slope_per_year: float
+    ols_slope_per_decade: float | None = None
+    ols_intercept: float | None = None
+    lag1_autocorrelation: float | None = None
+    autocorrelation_significant: bool | None = None
+    outlier_count: int | None = None
     years_to_significance: int
     estimated_additional_observation_years: int | None = None
     variance_reduction_pct: float

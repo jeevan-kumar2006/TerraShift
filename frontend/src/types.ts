@@ -73,9 +73,12 @@ export interface SeriesProvenance {
 }
 
 export interface SeriesStats {
+  mann_kendall_s?: number;
   mann_kendall_tau: number;
   z_score: number;
   p_value: number;
+  t_statistic?: number;
+  degrees_of_freedom?: number;
   t_test_p_value: number;
   raw_p_value: number;
   is_significant: boolean;
@@ -84,6 +87,11 @@ export interface SeriesStats {
   sens_slope_ci_lower?: number;
   sens_slope_ci_upper?: number;
   ols_slope_per_year: number;
+  ols_slope_per_decade?: number;
+  ols_intercept?: number;
+  lag1_autocorrelation?: number;
+  autocorrelation_significant?: boolean;
+  outlier_count?: number;
   years_to_significance: number;
   estimated_additional_observation_years?: number;
   variance_reduction_pct: number;
