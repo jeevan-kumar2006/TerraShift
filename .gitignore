@@ -48,6 +48,7 @@ logs/**/*.txt
 .netrc
 _netrc
 .cdsapirc
+0.26.0
 .dodsrc
 .edl_token
 *.pem
