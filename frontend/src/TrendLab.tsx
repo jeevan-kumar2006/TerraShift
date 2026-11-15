@@ -276,11 +276,11 @@ export default function TrendLab({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 text-[11px] font-medium text-slate-300">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs font-medium text-slate-300">
               <span className="h-2 w-2 rounded-full bg-cyan-400" />
               Source: {investigation.response.primary_provenance?.source_name ?? metadata.mission_source}
             </span>
-            <span className="rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 font-mono text-[11px] text-cyan-300">
+            <span className="rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 font-mono text-xs text-cyan-300">
               {(investigation.response.dataset_tag ?? investigation.response.data_status).toUpperCase()}
             </span>
           </div>
@@ -305,7 +305,7 @@ export default function TrendLab({
               >
                 Phase 1: Raw Monthly Signal
               </span>
-              <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-300">
+              <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs font-mono text-slate-300">
                 ±{primary_stats.seasonal_amplitude} {metadata.unit}
               </span>
             </div>
@@ -331,7 +331,7 @@ export default function TrendLab({
               >
                 Phase 2: Strip Seasonality (STL)
               </span>
-              <span className="rounded bg-emerald-950/80 px-1.5 py-0.5 text-[10px] font-mono font-bold text-emerald-300">
+              <span className="rounded bg-emerald-950/80 px-1.5 py-0.5 text-xs font-mono font-bold text-emerald-300">
                 {primary_stats.variance_reduction_pct}% stripped
               </span>
             </div>
@@ -361,7 +361,7 @@ export default function TrendLab({
                 Phase 3: Regional Teleconnection
               </span>
               {rVal !== null && rVal !== undefined && (
-                <span className="rounded bg-indigo-950/80 px-1.5 py-0.5 text-[10px] font-mono font-bold text-indigo-300">
+                <span className="rounded bg-indigo-950/80 px-1.5 py-0.5 text-xs font-mono font-bold text-indigo-300">
                   r = {rVal.toFixed(2)}
                 </span>
               )}
@@ -403,7 +403,7 @@ export default function TrendLab({
             </div>
 
             <div className="rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-1 text-right">
-              <span className="block text-[10px] uppercase tracking-wider text-slate-400">Date Range</span>
+              <span className="block text-xs uppercase tracking-wider text-slate-400">Date Range</span>
               <span className="font-mono text-xs font-bold text-cyan-300">
                 {draftStart}–{draftEnd} ({draftEnd - draftStart + 1} yrs)
               </span>
@@ -418,7 +418,7 @@ export default function TrendLab({
                   Notice: Recurring seasonal swings of &plusmn;{primary_stats.seasonal_amplitude} {metadata.unit} mask
                   the long-term physical trend
                 </p>
-                <p className="text-[11px] text-amber-100/80">
+                <p className="text-xs text-amber-100/80">
                   Raw seasonal Mann-Kendall p-value ={" "}
                   <span className="font-mono font-bold">{formatPValue(primary_stats.raw_p_value)}</span> vs.
                   Deseasonalized STL p-value ={" "}
@@ -452,7 +452,7 @@ export default function TrendLab({
               <button
                 type="button"
                 onClick={() => setActiveExplainKey("stl_variance")}
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-cyan-300 underline hover:text-cyan-200"
+                className="inline-flex items-center gap-1 text-xs font-medium text-cyan-300 underline hover:text-cyan-200"
               >
                 <HelpCircle className="h-3 w-3" />
                 How STL works
@@ -471,7 +471,7 @@ export default function TrendLab({
                 {teleconnection.comparison_sens_slope_per_decade}/dec)
               </p>
               {rInterpret && (
-                <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${rInterpret.cls}`}>
+                <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${rInterpret.cls}`}>
                   r = {rVal !== null && rVal !== undefined ? rVal.toFixed(2) : "N/A"} · {rInterpret.label}
                 </span>
               )}
@@ -763,7 +763,7 @@ export default function TrendLab({
               </div>
 
               {/* Window Presets for Scientific Comparison */}
-              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
                 {[
                   { label: "5-Yr Test (2018–2022)", range: [2018, 2022] as [number, number] },
                   { label: "Latest 5-Yr (2021–2025)", range: [2021, 2025] as [number, number] },
@@ -820,7 +820,7 @@ export default function TrendLab({
                 />
               </label>
             </div>
-            <p className="text-[11px] text-slate-400">
+            <p className="text-xs text-slate-400">
               <span className="font-semibold text-cyan-300">Why window length matters:</span> Short 5-year windows are
               frequently dominated by short-term interannual variability (ENSO, NAO) where p &ge; 0.05. Multi-decade
               windows (30+ years) are mandatory in climate and Earth observation science to confirm long-term signals.
@@ -835,7 +835,7 @@ export default function TrendLab({
               <Activity className="h-4 w-4 text-cyan-400" />
               <h3 className="text-sm font-bold text-white">Detective Verdict Scorecard</h3>
             </div>
-            <span className="font-mono text-[11px] text-slate-400">
+            <span className="font-mono text-xs text-slate-400">
               Significance threshold: &alpha; = 0.05
             </span>
           </div>
@@ -848,7 +848,7 @@ export default function TrendLab({
                 <p className="text-xs font-extrabold tracking-wide text-emerald-300">
                   STATISTICALLY SIGNIFICANT TREND (p &lt; 0.05)
                 </p>
-                <p className="mt-0.5 text-[11px] text-emerald-100/90 leading-relaxed">
+                <p className="mt-0.5 text-xs text-emerald-100/90 leading-relaxed">
                   Confirmed on deseasonalized anomalies across {primary_stats.observation_years} years (p ={" "}
                   {formatPValue(primary_stats.p_value)}). The probability that this trend occurred by random chance is
                   less than 5%.
@@ -864,7 +864,7 @@ export default function TrendLab({
                     ? "NATURAL NOISE / NO DETECTABLE SLOPE (p ≥ 0.05)"
                     : `NOT YET SIGNIFICANT — NEEDS ~${yearsNeeded} MORE YEARS`}
                 </p>
-                <p className="mt-0.5 text-[11px] text-amber-100/90 leading-relaxed">
+                <p className="mt-0.5 text-xs text-amber-100/90 leading-relaxed">
                   Natural variability masks the trend over this {primary_stats.observation_years}-year window (p ={" "}
                   {formatPValue(primary_stats.p_value)}). Statistical evidence is insufficient to reject the null
                   hypothesis.
@@ -877,7 +877,7 @@ export default function TrendLab({
           <div className="grid grid-cols-2 gap-2.5">
             <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-medium text-slate-400">Sen&apos;s Slope / Year</span>
+                <span className="text-xs font-medium text-slate-400">Sen&apos;s Slope / Year</span>
                 <button
                   type="button"
                   onClick={() => setActiveExplainKey("sens_slope")}
@@ -898,11 +898,11 @@ export default function TrendLab({
                   {primary_stats.sens_slope_per_year}
                 </span>
               </div>
-              <p className="mt-0.5 text-[11px] font-medium text-cyan-300">
+              <p className="mt-0.5 text-xs font-medium text-cyan-300">
                 {metadata.unit}/yr · {dirInfo.label}
               </p>
               {primary_stats.sens_slope_ci_lower !== undefined && primary_stats.sens_slope_ci_upper !== undefined && (
-                <p className="mt-1 font-mono text-[10px] text-slate-400">
+                <p className="mt-1 font-mono text-xs text-slate-400">
                   95% CI: [{primary_stats.sens_slope_ci_lower >= 0 ? "+" : ""}
                   {primary_stats.sens_slope_ci_lower}, {primary_stats.sens_slope_ci_upper >= 0 ? "+" : ""}
                   {primary_stats.sens_slope_ci_upper}]
@@ -911,15 +911,15 @@ export default function TrendLab({
             </div>
 
             <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
-              <span className="text-[11px] font-medium text-slate-400">Sen&apos;s Slope / Decade</span>
+              <span className="text-xs font-medium text-slate-400">Sen&apos;s Slope / Decade</span>
               <p className="mt-1 font-mono text-base font-bold text-cyan-300">
                 {primary_stats.sens_slope_per_decade >= 0 ? "+" : ""}
                 {primary_stats.sens_slope_per_decade}
               </p>
-              <p className="mt-0.5 text-[11px] text-slate-400">
+              <p className="mt-0.5 text-xs text-slate-400">
                 {metadata.unit}/decade
               </p>
-              <p className="mt-1 text-[10px] text-slate-400 line-clamp-1">
+              <p className="mt-1 text-xs text-slate-400 line-clamp-1">
                 {dirInfo.description}
               </p>
             </div>
@@ -927,14 +927,14 @@ export default function TrendLab({
 
           {/* Statistical Metrics Grid with Accessible Plain-Language Explanations */}
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs">
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-1.5 text-[11px] font-semibold text-slate-300">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-1.5 text-xs font-semibold text-slate-300">
               <span>Statistical Validation Metrics</span>
-              <span className="text-[10px] text-slate-400">Click &ldquo;?&rdquo; for guide</span>
+              <span className="text-xs text-slate-400">Click &ldquo;?&rdquo; for guide</span>
             </div>
             <div className="mt-2.5 grid grid-cols-2 gap-2.5">
               <div className="rounded-lg bg-slate-900/60 p-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-slate-400">Mann-Kendall &tau;</span>
+                  <span className="text-xs text-slate-400">Mann-Kendall &tau;</span>
                   <button
                     type="button"
                     onClick={() => setActiveExplainKey("mk_tau")}
@@ -945,12 +945,12 @@ export default function TrendLab({
                   </button>
                 </div>
                 <p className="font-mono font-semibold text-slate-100">{primary_stats.mann_kendall_tau}</p>
-                <p className="text-[10px] text-slate-400">Monotonic direction</p>
+                <p className="text-xs text-slate-400">Monotonic direction</p>
               </div>
 
               <div className="rounded-lg bg-slate-900/60 p-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-slate-400">Z-Score</span>
+                  <span className="text-xs text-slate-400">Z-Score</span>
                   <button
                     type="button"
                     onClick={() => setActiveExplainKey("z_score")}
@@ -961,12 +961,12 @@ export default function TrendLab({
                   </button>
                 </div>
                 <p className="font-mono font-semibold text-slate-100">{primary_stats.z_score}</p>
-                <p className="text-[10px] text-slate-400">&gt; &plusmn;1.96 = 95% conf.</p>
+                <p className="text-xs text-slate-400">&gt; &plusmn;1.96 = 95% conf.</p>
               </div>
 
               <div className="rounded-lg bg-slate-900/60 p-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-slate-400">Deseasonalized p</span>
+                  <span className="text-xs text-slate-400">Deseasonalized p</span>
                   <button
                     type="button"
                     onClick={() => setActiveExplainKey("p_value")}
@@ -983,14 +983,14 @@ export default function TrendLab({
                 >
                   {formatPValue(primary_stats.p_value)}
                 </p>
-                <p className="text-[10px] text-slate-400">
+                <p className="text-xs text-slate-400">
                   {primary_stats.is_significant ? "Significant" : "Inconclusive"}
                 </p>
               </div>
 
               <div className="rounded-lg bg-slate-900/60 p-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-slate-400">Raw Seasonal p</span>
+                  <span className="text-xs text-slate-400">Raw Seasonal p</span>
                   <button
                     type="button"
                     onClick={() => setActiveExplainKey("raw_vs_deseasonalized")}
@@ -1001,12 +1001,12 @@ export default function TrendLab({
                   </button>
                 </div>
                 <p className="font-mono font-semibold text-slate-300">{formatPValue(primary_stats.raw_p_value)}</p>
-                <p className="text-[10px] text-slate-400">Before seasonal removal</p>
+                <p className="text-xs text-slate-400">Before seasonal removal</p>
               </div>
 
               <div className="rounded-lg bg-slate-900/60 p-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-slate-400">Student&apos;s t p</span>
+                  <span className="text-xs text-slate-400">Student&apos;s t p</span>
                   <button
                     type="button"
                     onClick={() => setActiveExplainKey("p_value")}
@@ -1019,12 +1019,12 @@ export default function TrendLab({
                 <p className="font-mono font-semibold text-slate-100">
                   {formatPValue(primary_stats.t_test_p_value)}
                 </p>
-                <p className="text-[10px] text-slate-400">Parametric check</p>
+                <p className="text-xs text-slate-400">Parametric check</p>
               </div>
 
               <div className="rounded-lg bg-slate-900/60 p-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-slate-400">STL Variance Cut</span>
+                  <span className="text-xs text-slate-400">STL Variance Cut</span>
                   <button
                     type="button"
                     onClick={() => setActiveExplainKey("stl_variance")}
@@ -1037,31 +1037,31 @@ export default function TrendLab({
                 <p className="font-mono font-semibold text-cyan-300">
                   {primary_stats.variance_reduction_pct}%
                 </p>
-                <p className="text-[10px] text-slate-400">Seasonal noise removed</p>
+                <p className="text-xs text-slate-400">Seasonal noise removed</p>
               </div>
             </div>
 
             {/* Active Metric Explanation Callout */}
             {activeExplain && (
-              <div className="mt-3 rounded-lg border border-cyan-500/30 bg-cyan-950/40 p-2.5 text-[11px] text-cyan-100">
+              <div className="mt-3 rounded-lg border border-cyan-500/30 bg-cyan-950/40 p-2.5 text-xs text-cyan-100">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-cyan-300">{activeExplain.title}</span>
                   <button
                     type="button"
                     onClick={() => setActiveExplainKey(null)}
-                    className="text-[10px] text-slate-400 hover:text-white"
+                    className="text-xs text-slate-400 hover:text-white"
                   >
                     Close
                   </button>
                 </div>
                 <p className="mt-1 text-slate-200">{activeExplain.summary}</p>
-                <p className="mt-1 font-mono text-[10px] text-cyan-200">Rule: {activeExplain.formulaOrRule}</p>
-                <p className="mt-1 text-[10px] text-slate-300">How to interpret: {activeExplain.interpretation}</p>
+                <p className="mt-1 font-mono text-xs text-cyan-200">Rule: {activeExplain.formulaOrRule}</p>
+                <p className="mt-1 text-xs text-slate-300">How to interpret: {activeExplain.interpretation}</p>
               </div>
             )}
 
             {!primary_stats.is_significant && (
-              <p className="mt-2.5 border-t border-slate-800/80 pt-2 text-[10px] leading-relaxed text-amber-200/85">
+              <p className="mt-2.5 border-t border-slate-800/80 pt-2 text-xs leading-relaxed text-amber-200/85">
                 Note: p &ge; 0.05 indicates insufficient statistical evidence to reject the null hypothesis over this
                 window—it does not prove the absence of physical change.
               </p>
@@ -1084,7 +1084,7 @@ export default function TrendLab({
                 <HelpCircle className="h-3 w-3" />
               </button>
             </div>
-            <div className="mt-2 flex items-center justify-between text-[11px]">
+            <div className="mt-2 flex items-center justify-between text-xs">
               <span className="text-slate-400">Observation Progress</span>
               <span className="font-mono font-bold text-cyan-300">{horizonPct}%</span>
             </div>
@@ -1096,7 +1096,7 @@ export default function TrendLab({
                 style={{ width: `${horizonPct}%` }}
               />
             </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+            <p className="mt-2 text-xs leading-relaxed text-slate-400">
               {primary_stats.is_significant
                 ? `95% statistical confidence threshold reached within ${obsYears} years of monthly data.`
                 : (primary_stats.estimated_additional_observation_years ?? yearsNeeded) >= 90
@@ -1123,7 +1123,7 @@ export default function TrendLab({
             </div>
 
             {teleconnection.enabled && pointB ? (
-              <div className="mt-2 space-y-1.5 text-[11px]">
+              <div className="mt-2 space-y-1.5 text-xs">
                 {rInterpret && (
                   <span className={`inline-block rounded-full border px-2.5 py-0.5 font-semibold ${rInterpret.cls}`}>
                     {rInterpret.label}
@@ -1136,14 +1136,14 @@ export default function TrendLab({
                   {teleconnection.comparison_is_significant ? "significant" : "not significant"}, p ={" "}
                   {formatPValue(teleconnection.comparison_p_value)})
                 </p>
-                <p className="text-[10px] text-slate-400">
+                <p className="text-xs text-slate-400">
                   Cross-correlation r = {rVal !== null && rVal !== undefined ? rVal.toFixed(3) : "N/A"}. Notice:
                   correlation measures statistical co-variation of deseasonalized anomalies and does not by itself
                   establish physical causation.
                 </p>
               </div>
             ) : (
-              <p className="mt-1.5 text-[11px] text-slate-400">
+              <p className="mt-1.5 text-xs text-slate-400">
                 To test global teleconnections, return to the map and click &ldquo;Set Comparison Region (B)&rdquo; on a
                 distant Earth system.
               </p>
@@ -1151,40 +1151,40 @@ export default function TrendLab({
           </div>
 
           {/* Dataset Provenance & Data-Quality Panel */}
-          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-[11px]">
+          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs">
             <p className="font-semibold text-slate-200">Dataset Provenance &amp; Data Quality</p>
             <dl className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1.5 text-slate-300">
               <div>
-                <dt className="text-[10px] text-slate-400">Source / Mission</dt>
+                <dt className="text-xs text-slate-400">Source / Mission</dt>
                 <dd className="font-medium text-slate-200">
                   {investigation.response.primary_provenance?.source_name ?? metadata.mission_source}
                 </dd>
               </div>
               <div>
-                <dt className="text-[10px] text-slate-400">Data Type &amp; Tag</dt>
-                <dd className="font-mono text-[10px] text-cyan-300">
+                <dt className="text-xs text-slate-400">Data Type &amp; Tag</dt>
+                <dd className="font-mono text-xs text-cyan-300">
                   {investigation.response.primary_provenance?.data_type ?? metadata.data_type ?? "Reanalysis"} ·{" "}
                   {(investigation.response.dataset_tag ?? investigation.response.data_status).toUpperCase()}
                 </dd>
               </div>
               <div>
-                <dt className="text-[10px] text-slate-400">Observation Window</dt>
-                <dd className="font-mono text-[10px]">
+                <dt className="text-xs text-slate-400">Observation Window</dt>
+                <dd className="font-mono text-xs">
                   {investigation.response.primary_provenance
                     ? `${investigation.response.primary_provenance.start_date} → ${investigation.response.primary_provenance.end_date}`
                     : `${primary_stats.observation_months} months`}
                 </dd>
               </div>
               <div>
-                <dt className="text-[10px] text-slate-400">Valid / Missing Data</dt>
-                <dd className="font-mono text-[10px]">
+                <dt className="text-xs text-slate-400">Valid / Missing Data</dt>
+                <dd className="font-mono text-xs">
                   {primary_stats.valid_months ?? primary_stats.observation_months} valid ·{" "}
                   {(primary_stats.missing_pct ?? 0).toFixed(1)}% missing
                 </dd>
               </div>
               <div className="col-span-2">
-                <dt className="text-[10px] text-slate-400">Spatial Resolution &amp; Grid Cell</dt>
-                <dd className="text-[10px] text-slate-300">
+                <dt className="text-xs text-slate-400">Spatial Resolution &amp; Grid Cell</dt>
+                <dd className="text-xs text-slate-300">
                   {metadata.unit} ({investigation.response.primary_provenance?.spatial_resolution ?? metadata.resolution}) ·{" "}
                   {investigation.response.primary_provenance && investigation.response.primary_provenance.fallback_distance_km > 0
                     ? `Fallback source at ${investigation.response.primary_provenance.source_lat.toFixed(2)}°, ${investigation.response.primary_provenance.source_lon.toFixed(2)}° (${investigation.response.primary_provenance.fallback_distance_km} km away)`
@@ -1195,9 +1195,9 @@ export default function TrendLab({
           </div>
 
           {/* References */}
-          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-[11px] text-slate-400">
+          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-400">
             <p className="font-semibold text-slate-200">Scientific References</p>
-            <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
+            <p className="mt-1 text-xs leading-relaxed text-slate-400">
               {investigation.response.detective_brief.reference}
             </p>
           </div>

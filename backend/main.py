@@ -37,7 +37,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from ai_explainer import build_deterministic_brief, maybe_enhance_with_gemini
+from ai_explainer import build_deterministic_brief, maybe_enhance_with_gemini, suggest_variables_for_region
+from config import MIN_GRID_CELLS_WARNING
 from nasa_service import (
     PARAMETER_METADATA,
     build_series_provenance,
@@ -45,12 +46,17 @@ from nasa_service import (
     INDIA_BOUNDS,
     fetch_nasa_monthly,
     fetch_partner_intel,
+    fetch_region_power_monthly,
     get_parameter_metadata,
     get_preset_case_series,
     is_within_india_bounds,
     list_preset_cases,
     parse_external_timeseries,
 )
+from satellite_service import fetch_satellite_monthly, is_satellite_variable, normalize_satellite_id
+from trend_map_service import compute_india_trend_map, get_trend_map_progress
+from acquisition.dataset_registry import get_trend_variable_registry
+from acquisition.spatial_subset import compute_terrain_quality_flags
 try:
     from india_analytics import (
         INDIA_PHYSIOGRAPHIC_REGIONS,
@@ -109,7 +115,7 @@ except ImportError:
 
 app = FastAPI(
     title="TerraShift API",
-    description="Earth System Trend Detective — STL decomposition, Mann-Kendall, Sen's slope, and Multi-Agency NASA / NOAA / KNMI / CSA integration.",
+    description="Earth System Trend Detective (India) — STL decomposition, Mann-Kendall, Sen's slope, and NASA Earth observation integration.",
     version="2.0.0",
 )
 
@@ -277,6 +283,7 @@ class SeriesStatsModel(BaseModel):
     duplicate_timestamps_merged: int | None = None
     ci_methodology: str | None = None
     horizon_assumptions: str | None = None
+    seasonal_mann_kendall: dict[str, Any] | None = None
 
 
 class TeleconnectionSummaryModel(BaseModel):
@@ -328,6 +335,10 @@ class InvestigateDataModel(BaseModel):
     data_status: Literal["live", "cache", "cached", "offline_fallback", "imported", "synthetic"]
     dataset_tag: Literal["live", "cached", "offline_fallback", "imported", "synthetic"] | None = None
     fallback_note: str | None = None
+    source_badge: str | None = None
+    source_type: str | None = None
+    region_coverage: dict[str, Any] | None = None
+    quality_flags: list[str] | None = None
     primary_bounding_box: BoundingBoxModel
     comparison_bounding_box: BoundingBoxModel | None = None
     primary_provenance: SeriesProvenanceModel | None = None
@@ -388,8 +399,12 @@ class AnalyzeResponseModel(BaseModel):
 class InvestigateRequest(BaseModel):
     case_id: str | None = Field(default=None)
     parameter: str = Field(default="T2M")
-    primary_point: GeoPoint
+    primary_point: GeoPoint | None = Field(default=None)
     comparison_point: GeoPoint | None = Field(default=None)
+    region_type: Literal["state", "district", "india"] | None = Field(default=None)
+    region_id: str | None = Field(default=None)
+    comparison_region_type: Literal["state", "district", "india"] | None = Field(default=None)
+    comparison_region_id: str | None = Field(default=None)
     start_year: int = Field(default=1990, ge=1981, le=2025)
     end_year: int = Field(default=2025, ge=1981, le=2025)
     mk_variant: Literal["standard", "hamed_rao"] = Field(default="standard")
@@ -397,20 +412,22 @@ class InvestigateRequest(BaseModel):
     @field_validator("parameter")
     @classmethod
     def clean_parameter(cls, v: str) -> str:
-        s = v.strip().upper()
+        s = v.strip()
         if not s:
             raise ValueError("parameter cannot be empty.")
         return s
 
     @model_validator(mode="after")
-    def check_years(self) -> InvestigateRequest:
+    def check_years_and_target(self) -> InvestigateRequest:
         if self.start_year >= self.end_year:
             raise ValueError("start_year must be strictly less than end_year.")
+        if self.primary_point is None and not self.region_id:
+            raise ValueError("Either primary_point or region_id must be provided.")
         return self
 
 
 class ImportSeriesRequest(BaseModel):
-    raw_text: str = Field(..., description="Raw CSV, ASCII, or KNMI 13-col text exported from Giovanni, GES DISC, AppEEARS, KNMI, or NOAA CDO")
+    raw_text: str = Field(..., description="Raw CSV or ASCII text exported from NASA Giovanni, GES DISC, or AppEEARS")
     source_hint: str = Field(default="auto")
     region_name: str = Field(default="Imported Agency Series")
     lat: float = Field(default=0.0, ge=-90.0, le=90.0)
@@ -507,21 +524,10 @@ class AppeearsProductModel(BaseModel):
     resolution: str
 
 
-class CsaStationModel(BaseModel):
-    type: str
-    station_name: str
-    station_id: str
-    province: str
-    sample_date: str
-    sample_metric: str
-
-
 class PartnerIntelResponseModel(BaseModel):
     coordinates: dict[str, Any]
     cmr_collections: list[CmrCollectionModel]
     appeears_products: list[AppeearsProductModel]
-    csa_geomet_stations: list[CsaStationModel]
-    noaa_cdo_status: str
     deep_links: list[PartnerDeepLinkModel]
 
 
@@ -682,22 +688,22 @@ async def get_case_detail(
 
 @app.get("/api/partner-intel", response_model=PartnerIntelResponseModel)
 async def partner_intel_endpoint(
-    lat: float = Query(default=78.22, ge=-90.0, le=90.0),
-    lon: float = Query(default=15.63, ge=-180.0, le=180.0),
+    lat: float = Query(default=28.61, ge=-90.0, le=90.0),
+    lon: float = Query(default=77.21, ge=-180.0, le=180.0),
     parameter: str = Query(default="T2M"),
     start_year: int = Query(default=1990, ge=1981, le=2025),
     end_year: int = Query(default=2025, ge=1981, le=2025),
 ) -> dict[str, Any]:
-    """Query live NASA CMR (SWOT/SeaWiFS/MODIS), AppEEARS, CSA GeoMet, NOAA CDO, and deep links."""
+    """Query live NASA CMR (MODIS/GPM/OMI), AppEEARS, and Earthdata deep links."""
     if start_year >= end_year:
         raise HTTPException(status_code=400, detail="start_year must be strictly less than end_year.")
-    clean_param = parameter.strip().upper() or "T2M"
+    clean_param = parameter.strip() or "T2M"
     return await fetch_partner_intel(lat, lon, clean_param, start_year, end_year)
 
 
 @app.post("/api/import-series", response_model=InvestigateResponseModel)
 def import_series_endpoint(req: ImportSeriesRequest) -> dict[str, Any]:
-    """Parse external CSV/ASCII/.dat from Giovanni, GES DISC Hydrology, AppEEARS, KNMI, or NOAA CDO and analyze."""
+    """Parse external CSV/ASCII exported from NASA Giovanni, GES DISC Hydrology, or AppEEARS and analyze."""
     try:
         timestamps, values, detected_meta = parse_external_timeseries(req.raw_text, req.source_hint)
     except ValueError as exc:
@@ -860,66 +866,125 @@ def analyze_endpoint(req: AnalyzeRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _resolve_region_point(region_id: str) -> tuple[GeoPoint, dict[str, Any]]:
+    """Resolve a state/district/india region_id to its GeoPoint centroid and metadata."""
+    try:
+        geom, meta = load_region_polygon(region_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    centroid = geom.centroid
+    point = GeoPoint(
+        lat=round(float(centroid.y), 4),
+        lon=round(float(centroid.x), 4),
+        name=str(meta.get("name") or region_id),
+    )
+    return point, meta
+
+
+def _build_source_badge(param: str) -> tuple[str, str]:
+    """Return (source_badge, source_type) from TREND_VARIABLE_REGISTRY or metadata."""
+    norm_sat = normalize_satellite_id(param)
+    for item in get_trend_variable_registry():
+        if item["id"] == norm_sat or item["id"].upper() == param.upper():
+            if item["source_type"] == "satellite":
+                return f"Satellite: {item['mission']} ({item['instrument']})", "satellite"
+            return f"Model: {item['mission']}", "model/reanalysis"
+    meta = get_parameter_metadata(param)
+    return f"Model: {meta['mission_source']}", "model/reanalysis"
+
+
 @app.post("/api/investigate", response_model=InvestigateResponseModel)
 async def investigate_endpoint(req: InvestigateRequest) -> dict[str, Any]:
-    """Hybrid NASA POWER fetch + STL & non-parametric trend investigation."""
-    if not is_within_india_bounds(req.primary_point.lat, req.primary_point.lon):
+    """Hybrid NASA POWER + Earthdata satellite fetch + STL & non-parametric trend investigation."""
+    primary_region_meta: dict[str, Any] | None = None
+    comp_region_meta: dict[str, Any] | None = None
+
+    primary_point = req.primary_point
+    if primary_point is None and req.region_id:
+        primary_point, primary_region_meta = _resolve_region_point(req.region_id)
+    elif primary_point is not None and req.region_id:
+        _, primary_region_meta = _resolve_region_point(req.region_id)
+
+    if primary_point is None:
+        raise HTTPException(status_code=422, detail="Either primary_point or region_id must be provided.")
+
+    comp_point = req.comparison_point
+    if comp_point is None and req.comparison_region_id:
+        comp_point, comp_region_meta = _resolve_region_point(req.comparison_region_id)
+    elif comp_point is not None and req.comparison_region_id:
+        _, comp_region_meta = _resolve_region_point(req.comparison_region_id)
+
+    if not is_within_india_bounds(primary_point.lat, primary_point.lon):
         raise HTTPException(
             status_code=422,
             detail="TerraShift scope is restricted exclusively to India (6.0°N–37.5°N, 68.0°E–97.5°E).",
         )
-    if req.comparison_point is not None:
-        if not is_within_india_bounds(req.comparison_point.lat, req.comparison_point.lon):
+    if comp_point is not None:
+        if not is_within_india_bounds(comp_point.lat, comp_point.lon):
             raise HTTPException(
                 status_code=422,
                 detail="TerraShift scope is restricted exclusively to India (6.0°N–37.5°N, 68.0°E–97.5°E).",
             )
-    param = req.parameter.upper()
+
+    raw_param = req.parameter.strip()
+    is_sat = is_satellite_variable(raw_param)
+    param = normalize_satellite_id(raw_param) if is_sat else raw_param.upper()
     primary_data: dict[str, Any] | None = None
     comp_data: dict[str, Any] | None = None
 
-    if req.case_id:
+    if req.case_id and not req.region_id and not is_sat:
         preset = get_preset_case_series(req.case_id, req.start_year, req.end_year)
         if preset is not None and preset["case"]["parameter"].upper() == param:
             c_primary = preset["case"]["primary_point"]
             if (
-                abs(c_primary["lat"] - req.primary_point.lat) < 0.05
-                and abs(c_primary["lon"] - req.primary_point.lon) < 0.05
+                abs(c_primary["lat"] - primary_point.lat) < 0.05
+                and abs(c_primary["lon"] - primary_point.lon) < 0.05
             ):
                 primary_data = preset["primary"]
-                if req.comparison_point is not None:
+                if comp_point is not None:
                     c_comp = preset["case"]["comparison_point"]
                     if (
-                        abs(c_comp["lat"] - req.comparison_point.lat) < 0.05
-                        and abs(c_comp["lon"] - req.comparison_point.lon) < 0.05
+                        abs(c_comp["lat"] - comp_point.lat) < 0.05
+                        and abs(c_comp["lon"] - comp_point.lon) < 0.05
                     ):
                         comp_data = preset["comparison"]
 
+    async def _fetch_target(pt: GeoPoint, reg_id: str | None) -> dict[str, Any]:
+        if is_sat:
+            return await fetch_satellite_monthly(
+                dataset_id=param,
+                start_year=req.start_year,
+                end_year=req.end_year,
+                lat=None if reg_id else pt.lat,
+                lon=None if reg_id else pt.lon,
+                region_id=reg_id,
+            )
+        if reg_id:
+            return await fetch_region_power_monthly(
+                region_id=reg_id,
+                parameter=param,
+                start_year=req.start_year,
+                end_year=req.end_year,
+            )
+        return await fetch_nasa_monthly(pt.lat, pt.lon, param, req.start_year, req.end_year)
+
     try:
-        if primary_data is None and req.comparison_point is not None:
+        if primary_data is None and comp_point is not None:
             primary_data, comp_data = await asyncio.gather(
-                fetch_nasa_monthly(
-                    req.primary_point.lat, req.primary_point.lon, param, req.start_year, req.end_year
-                ),
-                fetch_nasa_monthly(
-                    req.comparison_point.lat, req.comparison_point.lon, param, req.start_year, req.end_year
-                ),
+                _fetch_target(primary_point, req.region_id),
+                _fetch_target(comp_point, req.comparison_region_id),
             )
         elif primary_data is None:
-            primary_data = await fetch_nasa_monthly(
-                req.primary_point.lat, req.primary_point.lon, param, req.start_year, req.end_year
-            )
-        elif req.comparison_point is not None and comp_data is None:
-            comp_data = await fetch_nasa_monthly(
-                req.comparison_point.lat, req.comparison_point.lon, param, req.start_year, req.end_year
-            )
+            primary_data = await _fetch_target(primary_point, req.region_id)
+        elif comp_point is not None and comp_data is None:
+            comp_data = await _fetch_target(comp_point, req.comparison_region_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Observation fetch error: {exc}") from exc
 
     if primary_data is None:
-        raise HTTPException(status_code=500, detail="Failed to retrieve observation series for primary point.")
+        raise HTTPException(status_code=500, detail="Failed to retrieve observation series for primary target.")
 
     try:
         analysis = analyze_series(
@@ -937,16 +1002,16 @@ async def investigate_endpoint(req: InvestigateRequest) -> dict[str, Any]:
     primary_prov = primary_data.get("provenance")
     comp_prov = comp_data.get("provenance") if comp_data else None
     brief = _build_deterministic_brief(
-        lat=req.primary_point.lat,
-        lon=req.primary_point.lon,
+        lat=primary_point.lat,
+        lon=primary_point.lon,
         parameter=param,
         sens_slope_per_year=ps["sens_slope_per_year"],
         p_value=ps["p_value"],
         variance_reduction_pct=ps["variance_reduction_pct"],
         years_to_significance=ps["years_to_significance"],
         observation_years=ps["observation_years"],
-        region_name=req.primary_point.name,
-        comparison_name=req.comparison_point.name if req.comparison_point else None,
+        region_name=primary_point.name,
+        comparison_name=comp_point.name if comp_point else None,
         comparison_slope_per_year=tc["comparison_sens_slope_per_year"],
         cross_correlation_r=tc["cross_correlation_r"],
         case_id=req.case_id,
@@ -957,16 +1022,16 @@ async def investigate_endpoint(req: InvestigateRequest) -> dict[str, Any]:
     )
     if os.environ.get("GEMINI_API_KEY", "").strip():
         explain_req = ExplainRequest(
-            lat=req.primary_point.lat,
-            lon=req.primary_point.lon,
+            lat=primary_point.lat,
+            lon=primary_point.lon,
             parameter=param,
             sens_slope_per_year=ps["sens_slope_per_year"],
             p_value=ps["p_value"],
             variance_reduction_pct=ps["variance_reduction_pct"],
             years_to_significance=ps["years_to_significance"],
             observation_years=ps["observation_years"],
-            region_name=req.primary_point.name,
-            comparison_name=req.comparison_point.name if req.comparison_point else None,
+            region_name=primary_point.name,
+            comparison_name=comp_point.name if comp_point else None,
             comparison_slope_per_year=tc["comparison_sens_slope_per_year"],
             cross_correlation_r=tc["cross_correlation_r"],
             case_id=req.case_id,
@@ -991,6 +1056,28 @@ async def investigate_endpoint(req: InvestigateRequest) -> dict[str, Any]:
         overall_dataset_tag = "cached"
 
     fallback_note = primary_data.get("fallback_note") or (comp_data.get("fallback_note") if comp_data else None)
+    region_coverage = primary_data.get("region_coverage")
+    quality_flags: list[str] = list(primary_data.get("quality_flags") or [])
+    if region_coverage and isinstance(region_coverage.get("grid_cells_used"), int):
+        if region_coverage["grid_cells_used"] < MIN_GRID_CELLS_WARNING:
+            warn_msg = (
+                f"Low grid coverage: only {region_coverage['grid_cells_used']} grid cell(s) "
+                f"covered inside polygon (recommended >= {MIN_GRID_CELLS_WARNING})."
+            )
+            if warn_msg not in quality_flags:
+                quality_flags.append(warn_msg)
+    if not quality_flags and req.region_id:
+        try:
+            geom, _ = load_region_polygon(req.region_id)
+            quality_flags = compute_terrain_quality_flags(
+                region_id=req.region_id,
+                geom=geom,
+                grid_cells_used=int((region_coverage or {}).get("grid_cells_used", 1)),
+            )
+        except Exception:
+            pass
+
+    source_badge, source_type = _build_source_badge(param)
 
     return {
         "request": req.model_dump(),
@@ -999,6 +1086,10 @@ async def investigate_endpoint(req: InvestigateRequest) -> dict[str, Any]:
             "data_status": overall_status,
             "dataset_tag": overall_dataset_tag,
             "fallback_note": fallback_note,
+            "source_badge": source_badge,
+            "source_type": source_type,
+            "region_coverage": region_coverage,
+            "quality_flags": quality_flags or None,
             "primary_bounding_box": primary_data["bounding_box"],
             "comparison_bounding_box": comp_data["bounding_box"] if comp_data else None,
             "primary_provenance": primary_prov,
@@ -1011,6 +1102,69 @@ async def investigate_endpoint(req: InvestigateRequest) -> dict[str, Any]:
             "detective_brief": brief,
         },
     }
+
+
+@app.get("/api/satellite/variables")
+def satellite_variables_endpoint() -> dict[str, Any]:
+    """List all supported satellite & model/reanalysis trend variables with DOI/citations and units."""
+    items = get_trend_variable_registry()
+    return {
+        "variables": items,
+        "satellite_count": sum(1 for item in items if item["source_type"] == "satellite"),
+        "model_count": sum(1 for item in items if item["source_type"] != "satellite"),
+    }
+
+
+@app.get("/api/trend-map")
+async def trend_map_endpoint(
+    variable: str = Query(default="T2M"),
+    level: Literal["state", "district"] = Query(default="state"),
+    start: int = Query(default=1990, ge=1981, le=2025),
+    end: int = Query(default=2025, ge=1981, le=2025),
+    season: Literal["annual", "DJF", "MAM", "JJAS", "ON"] = Query(default="annual"),
+) -> dict[str, Any]:
+    """Compute India choropleth trend map with Benjamini-Hochberg FDR and data-driven legend range."""
+    if start >= end:
+        raise HTTPException(status_code=400, detail="start must be strictly less than end.")
+    try:
+        return await compute_india_trend_map(
+            variable=variable,
+            level=level,
+            start_year=start,
+            end_year=end,
+            season=season,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/trend-map/progress")
+def trend_map_progress_endpoint(cache_id: str = Query(..., min_length=2)) -> dict[str, Any]:
+    """Return progress for an in-flight /api/trend-map computation."""
+    return get_trend_map_progress(cache_id)
+
+
+@app.get("/api/suggest-variables")
+async def suggest_variables_endpoint(
+    region: str = Query(..., min_length=2, description="India region_id or state/district name"),
+) -> dict[str, Any]:
+    """Suggest relevant Earth observation variables for an Indian region from computed features."""
+    try:
+        point, meta = _resolve_region_point(region)
+        area_km2 = meta.get("area_km2")
+        return await suggest_variables_for_region(
+            region_id=region,
+            region_name=point.name,
+            lat=point.lat,
+            lon=point.lon,
+            area_km2=float(area_km2) if area_km2 is not None else None,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Variable suggestion failed: {exc}") from exc
 
 
 @app.post("/api/explain", response_model=DetectiveBriefModel)
@@ -1242,22 +1396,8 @@ async def acquisition_download_endpoint(req: DownloadRequest) -> dict[str, Any]:
             "spatial_subset": subset_result,
         }
 
-    # Path B: Copernicus CDS Datasets
+    # Path B: NASA Earthdata / CMR Datasets
     auth = get_auth_diagnostics()
-    if entry["auth_provider"] == "Copernicus CDS API":
-        return {
-            "status": "auth_required" if not auth["copernicus_configured"] else "ready_via_cds_client",
-            "dataset_id": entry["dataset_id"],
-            "auth_required": not auth["copernicus_configured"],
-            "auth_status": auth,
-            "message": (
-                "Copernicus CDS API requires ~/.cdsapirc or CDSAPI_KEY before downloading ERA5/CAMS NetCDF archives."
-                if not auth["copernicus_configured"]
-                else "Copernicus CDS credentials detected; invoke backend.acquisition.copernicus_client.download_cds_dataset."
-            ),
-        }
-
-    # Path C: NASA Earthdata / CMR Datasets
     concept = entry.get("collection_concept_id")
     granules: list[dict[str, Any]] = []
     if concept:

@@ -404,9 +404,169 @@ def _analyze_single(timestamps: list[str], values: list[float | None], mk_varian
             "Estimated Additional Observation Period is a theoretical statistical power calculation (not a climate forecast): "
             "it assumes the observed linear slope, residual variance, and monthly independence persist at two-sided alpha = 0.05."
         ),
+        "seasonal_mann_kendall": seasonal_mann_kendall_test(series_dict["timestamps"], series_dict["raw_values"]),
     }
 
     return {"series": series_dict, "stats": stats_dict, "_raw_anomalies": deseasonalized_anomalies}
+
+
+def seasonal_mann_kendall_test(
+    timestamps: list[str],
+    values: list[float | None],
+    alpha: float = 0.05,
+) -> dict[str, Any]:
+    """
+    Hirsch, Slack & Smith (1982) Seasonal Mann-Kendall test and Seasonal Sen's slope
+    estimator across the 12 calendar months.
+    """
+    month_buckets: dict[int, list[tuple[int, float]]] = {m: [] for m in range(1, 13)}
+    for ts, val in zip(timestamps, values):
+        if val is None or not np.isfinite(float(val)) or float(val) <= -990.0:
+            continue
+        s = str(ts).strip()
+        if len(s) >= 7 and s[:4].isdigit() and s[5:7].isdigit():
+            yr = int(s[:4])
+            mo = int(s[5:7])
+            if 1 <= mo <= 12:
+                month_buckets[mo].append((yr, float(val)))
+
+    total_s = 0.0
+    total_var_s = 0.0
+    total_pairs = 0.0
+    within_month_slopes: list[float] = []
+    seasons_evaluated = 0
+
+    for mo in range(1, 13):
+        obs = sorted(month_buckets[mo], key=lambda item: item[0])
+        n_m = len(obs)
+        if n_m < 2:
+            continue
+        seasons_evaluated += 1
+        yrs_m = np.array([o[0] for o in obs], dtype=float)
+        vals_m = np.array([o[1] for o in obs], dtype=float)
+
+        i_idx, j_idx = np.triu_indices(n_m, k=1)
+        diffs = vals_m[j_idx] - vals_m[i_idx]
+        dt_yrs = yrs_m[j_idx] - yrs_m[i_idx]
+        valid_dt = dt_yrs > 0
+        if np.any(valid_dt):
+            within_month_slopes.extend((diffs[valid_dt] / dt_yrs[valid_dt]).tolist())
+
+        s_m = float(np.sum(np.sign(diffs)))
+        _, counts = np.unique(vals_m, return_counts=True)
+        ties = counts[counts > 1]
+        tie_term = float(np.sum(ties * (ties - 1) * (2 * ties + 5)))
+        var_s_m = max(0.0, (n_m * (n_m - 1) * (2 * n_m + 5) - tie_term) / 18.0)
+
+        total_s += s_m
+        total_var_s += var_s_m
+        total_pairs += 0.5 * n_m * (n_m - 1)
+
+    if total_var_s <= 0.0 or total_pairs <= 0.0:
+        return {
+            "method": "Hirsch, Slack & Smith (1982) Seasonal Mann-Kendall",
+            "s_stat": _clean_float(total_s, 2),
+            "var_s": _clean_float(total_var_s, 2),
+            "z_score": 0.0,
+            "tau": 0.0,
+            "p_value": 1.0,
+            "is_significant": False,
+            "seasonal_sens_slope_per_year": 0.0,
+            "seasonal_sens_slope_per_decade": 0.0,
+            "seasons_evaluated": seasons_evaluated,
+        }
+
+    if total_s > 0:
+        z_score = (total_s - 1.0) / math.sqrt(total_var_s)
+    elif total_s < 0:
+        z_score = (total_s + 1.0) / math.sqrt(total_var_s)
+    else:
+        z_score = 0.0
+
+    p_value = float(2.0 * (1.0 - norm.cdf(abs(z_score))))
+    tau = float(total_s / total_pairs)
+    slope_yr = float(np.median(within_month_slopes)) if within_month_slopes else 0.0
+
+    return {
+        "method": "Hirsch, Slack & Smith (1982) Seasonal Mann-Kendall",
+        "s_stat": _clean_float(total_s, 2),
+        "var_s": _clean_float(total_var_s, 2),
+        "z_score": _clean_float(z_score, 4),
+        "tau": _clean_float(tau, 4),
+        "p_value": _clean_float(p_value, 6),
+        "is_significant": bool(p_value < alpha),
+        "seasonal_sens_slope_per_year": _clean_float(slope_yr, 5),
+        "seasonal_sens_slope_per_decade": _clean_float(slope_yr * 10.0, 4),
+        "seasons_evaluated": seasons_evaluated,
+    }
+
+
+def benjamini_hochberg_fdr(
+    p_values: list[float | None],
+    alpha: float = 0.05,
+) -> dict[str, Any]:
+    """
+    Benjamini & Hochberg (1995) step-up False Discovery Rate (FDR) correction
+    across multiple regional hypothesis tests.
+    """
+    indexed = [(i, float(p)) for i, p in enumerate(p_values) if p is not None and np.isfinite(float(p))]
+    m = len(indexed)
+    q_values: list[float | None] = [None] * len(p_values)
+    significant: list[bool] = [False] * len(p_values)
+
+    if m == 0:
+        return {"q_values": q_values, "significant_fdr": significant, "alpha": alpha, "m_tests": 0}
+
+    sorted_pairs = sorted(indexed, key=lambda x: x[1])
+    raw_q = [0.0] * m
+    running_min = 1.0
+    for rank_idx in range(m - 1, -1, -1):
+        rank = rank_idx + 1
+        _, p_val = sorted_pairs[rank_idx]
+        candidate = min(1.0, (m / float(rank)) * p_val)
+        running_min = min(running_min, candidate)
+        raw_q[rank_idx] = running_min
+
+    for (orig_idx, _), q_val in zip(sorted_pairs, raw_q):
+        q_clean = round(float(q_val), 6)
+        q_values[orig_idx] = q_clean
+        significant[orig_idx] = bool(q_val < alpha)
+
+    return {
+        "q_values": q_values,
+        "significant_fdr": significant,
+        "alpha": alpha,
+        "m_tests": m,
+    }
+
+
+def compute_robust_legend_range(
+    slopes: list[float | None],
+    percentile: float = 95.0,
+) -> dict[str, Any]:
+    """
+    Compute a data-driven symmetric diverging legend range [-M, +M] centered on 0
+    using the specified percentile (default 95th) of |slope|.
+    """
+    valid_abs = [
+        abs(float(s))
+        for s in slopes
+        if s is not None and np.isfinite(float(s))
+    ]
+    if not valid_abs:
+        robust_max = 1.0
+    else:
+        robust_max = float(np.percentile(valid_abs, percentile))
+        if robust_max <= 1e-9:
+            robust_max = float(max(valid_abs)) if max(valid_abs) > 1e-9 else 0.1
+    robust_max = round(robust_max, 4)
+    return {
+        "min": -robust_max,
+        "max": robust_max,
+        "center": 0.0,
+        "percentile": percentile,
+        "n_regions": len(valid_abs),
+    }
 
 
 def analyze_series(

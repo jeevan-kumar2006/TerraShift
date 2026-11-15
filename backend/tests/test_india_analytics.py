@@ -47,7 +47,7 @@ def test_analyze_india_seasons_computation():
 
     res = analyze_india_seasons(timestamps, values, baseline_start=1991, baseline_end=2020)
     assert res["eda"]["n_valid"] == len(timestamps)
-    assert set(res["seasons"].keys()) == {"JF", "MAM", "JJAS", "OND"}
+    assert set(res["seasons"].keys()) == {"DJF", "MAM", "JJAS", "ON"}
     mam = res["seasons"]["MAM"]
     assert mam["sen_slope_per_decade"] > 0.35
     assert mam["significant_holm"] is True
@@ -61,7 +61,7 @@ def test_india_api_endpoints():
     assert r_reg.status_code == 200
     reg_body = r_reg.json()
     assert len(reg_body["physiographic_regions"]) == 10
-    assert set(reg_body["seasons"].keys()) == {"JF", "MAM", "JJAS", "OND"}
+    assert set(reg_body["seasons"].keys()) == {"DJF", "MAM", "JJAS", "ON"}
 
     r_geo = client.get("/api/india/boundaries-geojson")
     assert r_geo.status_code == 200
@@ -74,7 +74,7 @@ def test_india_api_endpoints():
     assert r_seas.status_code == 200
     seas_body = r_seas.json()
     assert seas_body["meta"]["parameter"] == "T2M"
-    assert set(seas_body["analysis"]["seasons"].keys()) == {"JF", "MAM", "JJAS", "OND"}
+    assert set(seas_body["analysis"]["seasons"].keys()) == {"DJF", "MAM", "JJAS", "ON"}
 
     r_comp = client.get("/api/india/regional-comparison?start_year=1990&end_year=2025")
     assert r_comp.status_code == 200

@@ -8,13 +8,13 @@ import numpy as np
 import pandas as pd
 from scipy.stats import linregress
 
-from stats_engine import _clean_float, mann_kendall_test, sens_slope
+from stats_engine import _clean_float, mann_kendall_test, seasonal_mann_kendall_test, sens_slope
 
 INDIA_SEASONS: list[dict[str, Any]] = [
-    {"code": "JF", "name": "Winter (Jan–Feb)", "months": [1, 2]},
+    {"code": "DJF", "name": "Winter (Dec–Feb)", "months": [12, 1, 2]},
     {"code": "MAM", "name": "Pre-Monsoon (Mar–May)", "months": [3, 4, 5]},
     {"code": "JJAS", "name": "Southwest Monsoon (Jun–Sep)", "months": [6, 7, 8, 9]},
-    {"code": "OND", "name": "Post-Monsoon (Oct–Dec)", "months": [10, 11, 12]},
+    {"code": "ON", "name": "Post-Monsoon (Oct–Nov)", "months": [10, 11]},
 ]
 
 INDIA_PHYSIOGRAPHIC_REGIONS: list[dict[str, Any]] = [
@@ -245,9 +245,14 @@ def analyze_india_seasons(
         for yr, val in ann.items()
     ]
     sorted_anom = sorted(anomalies, key=lambda x: x["anomaly"] or 0.0, reverse=True)
+    smk = seasonal_mann_kendall_test(
+        df["ts"].dt.strftime("%Y-%m").tolist(),
+        df["val"].tolist(),
+    )
     return {
         "eda": eda,
         "seasons": seasons_dict,
+        "seasonal_mann_kendall": smk,
         "baseline_period": f"{int(base_slice.index.min())}–{int(base_slice.index.max())}",
         "baseline_mean": _clean_float(base_mean, 4),
         "annual_anomalies": anomalies,

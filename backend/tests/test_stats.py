@@ -236,22 +236,22 @@ def test_partner_intel_and_multi_agency_series_importer():
 
     client = TestClient(app)
 
-    # 1. Test /api/partner-intel for Canadian Arctic (Case 6 coordinates)
-    intel = client.get("/api/partner-intel?lat=68.8&lon=-134.4&parameter=T2M&start_year=1990&end_year=2025")
+    # 1. Test /api/partner-intel for Indian coordinates (Delhi)
+    intel = client.get("/api/partner-intel?lat=28.61&lon=77.21&parameter=T2M&start_year=1990&end_year=2025")
     assert intel.status_code == 200
     intel_body = intel.json()
-    assert len(intel_body["deep_links"]) == 13
+    assert len(intel_body["deep_links"]) == 5
     link_ids = {lk["id"] for lk in intel_body["deep_links"]}
-    assert {"giovanni", "hydrology_ts", "appeears", "noaa_cdo", "ntrs_seawifs", "knmi_climexp", "csa_rcm", "csa_swot", "csa_sar_tutorial"}.issubset(link_ids)
+    assert {"giovanni", "hydrology_ts", "appeears", "isro_mosdac", "imd_india"} == link_ids
     assert len(intel_body["cmr_collections"]) >= 1
     assert len(intel_body["appeears_products"]) >= 1
 
     # 2. Test /api/import-series with NASA Giovanni CSV format
-    giovanni_lines = ["# NASA Giovanni Monthly Series", "time,chlorophyll_a"]
+    giovanni_lines = ["# NASA Giovanni Monthly Series", "time,ndvi"]
     for yr in range(2000, 2020):
         for mo in range(1, 13):
             t = (yr - 2000) + (mo - 1) / 12.0
-            val = 3.0 + 0.08 * t + 1.5 * np.sin(2.0 * np.pi * mo / 12.0)
+            val = 0.25 + 0.015 * t + 0.08 * np.sin(2.0 * np.pi * mo / 12.0)
             giovanni_lines.append(f"{yr:04d}-{mo:02d}-01,{val:.4f}")
 
     imp_g = client.post(
@@ -259,36 +259,16 @@ def test_partner_intel_and_multi_agency_series_importer():
         json={
             "raw_text": "\n".join(giovanni_lines),
             "source_hint": "NASA Giovanni",
-            "region_name": "Mississippi River Plume",
-            "lat": 29.15,
-            "lon": -89.25,
-            "unit": "mg/m³",
+            "region_name": "Thar Desert, Rajasthan",
+            "lat": 26.9,
+            "lon": 70.9,
+            "unit": "NDVI",
         },
     )
     assert imp_g.status_code == 200
     g_res = imp_g.json()["response"]
     assert g_res["primary_stats"]["is_significant"] is True
-    assert abs(g_res["primary_stats"]["sens_slope_per_year"] - 0.08) < 0.015
-
-    # 3. Test /api/import-series with KNMI Climate Explorer 13-column format
-    knmi_lines = ["# KNMI Climate Explorer Table"]
-    for yr in range(2005, 2020):
-        vals = [f"{1.0 + 0.05 * (yr - 2005) + 0.8 * np.cos(2 * np.pi * m / 12.0):.3f}" for m in range(1, 13)]
-        knmi_lines.append(f"{yr} " + " ".join(vals))
-
-    imp_k = client.post(
-        "/api/import-series",
-        json={
-            "raw_text": "\n".join(knmi_lines),
-            "source_hint": "auto",
-            "region_name": "KNMI Station",
-            "unit": "°C",
-        },
-    )
-    assert imp_k.status_code == 200
-    k_res = imp_k.json()["response"]
-    assert k_res["metadata"]["parameter_code"] == "KNMI_SERIES"
-    assert k_res["primary_stats"]["observation_months"] == 15 * 12
+    assert abs(g_res["primary_stats"]["sens_slope_per_year"] - 0.015) < 0.005
 
 
 def test_hamed_rao_matches_pymannkendall_and_sens_ci():

@@ -215,10 +215,10 @@ export default function IndiaRegionalView({
                   <span className="text-xs font-bold text-cyan-300">{reg.name}</span>
                   <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                 </div>
-                <span className="font-mono text-[11px] text-slate-400">
+                <span className="font-mono text-xs text-slate-400">
                   {reg.lat.toFixed(2)}°N, {reg.lon.toFixed(2)}°E
                 </span>
-                <span className="line-clamp-2 text-[11px] text-slate-300">{reg.focus}</span>
+                <span className="line-clamp-2 text-xs text-slate-300">{reg.focus}</span>
               </button>
             );
           })}
@@ -306,25 +306,25 @@ export default function IndiaRegionalView({
             {eda && (
               <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
                 <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-                  <div className="text-[11px] text-slate-400">Valid Months</div>
+                  <div className="text-xs text-slate-400">Valid Months</div>
                   <div className="font-mono text-base font-bold text-white">
                     {eda.n_valid} / {eda.n_total}
                   </div>
                 </div>
                 <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-                  <div className="text-[11px] text-slate-400">Mean</div>
+                  <div className="text-xs text-slate-400">Mean</div>
                   <div className="font-mono text-base font-bold text-cyan-300">
                     {eda.mean !== null ? eda.mean.toFixed(3) : "—"}
                   </div>
                 </div>
                 <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-                  <div className="text-[11px] text-slate-400">Std Dev</div>
+                  <div className="text-xs text-slate-400">Std Dev</div>
                   <div className="font-mono text-base font-bold text-slate-200">
                     {eda.std !== null ? eda.std.toFixed(3) : "—"}
                   </div>
                 </div>
                 <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-                  <div className="text-[11px] text-slate-400">Min / Max</div>
+                  <div className="text-xs text-slate-400">Min / Max</div>
                   <div className="font-mono text-sm font-bold text-slate-200">
                     {eda.min !== null && eda.max !== null
                       ? `${eda.min.toFixed(2)} / ${eda.max.toFixed(2)}`
@@ -332,7 +332,7 @@ export default function IndiaRegionalView({
                   </div>
                 </div>
                 <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-                  <div className="text-[11px] text-slate-400">Coverage</div>
+                  <div className="text-xs text-slate-400">Coverage</div>
                   <div className="font-mono text-base font-bold text-slate-200">
                     {eda.start_year ?? "—"}–{eda.end_year ?? "—"}
                   </div>
@@ -358,7 +358,7 @@ export default function IndiaRegionalView({
                         <h3 className="text-sm font-bold text-white">{s.name}</h3>
                       </div>
                       <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                        className={`rounded-full px-2 py-0.5 text-xs font-bold ${
                           s.significant_holm
                             ? "border border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
                             : "border border-slate-700 bg-slate-800 text-slate-300"
@@ -380,7 +380,7 @@ export default function IndiaRegionalView({
                       </span>
                     </div>
 
-                    <div className="space-y-1 text-[11px] text-slate-400">
+                    <div className="space-y-1 text-xs text-slate-400">
                       <div className="flex justify-between">
                         <span>OLS Slope:</span>
                         <span className="font-mono text-slate-200">
@@ -477,7 +477,7 @@ export default function IndiaRegionalView({
                 <tr key={`${row.case_id}-${row.role}`} className="text-slate-200 hover:bg-slate-800/30">
                   <td className="py-2.5 pr-3">
                     <div className="font-semibold text-white">{row.location}</div>
-                    <div className="font-mono text-[10px] text-slate-400">
+                    <div className="font-mono text-xs text-slate-400">
                       {row.lat.toFixed(2)}°N, {row.lon.toFixed(2)}°E
                     </div>
                   </td>
@@ -487,7 +487,7 @@ export default function IndiaRegionalView({
                       ? `${row.sen_slope_per_decade >= 0 ? "+" : ""}${row.sen_slope_per_decade.toFixed(4)}/dec`
                       : "—"}
                     {row.mk_significant ? (
-                      <span className="ml-1.5 text-[10px] text-emerald-300">*</span>
+                      <span className="ml-1.5 text-xs text-emerald-300">*</span>
                     ) : null}
                   </td>
                   {SEASON_ORDER.map((sCode) => {
@@ -499,7 +499,7 @@ export default function IndiaRegionalView({
                           ? `${val >= 0 ? "+" : ""}${val.toFixed(4)}`
                           : "—"}
                         {sd?.significant_holm ? (
-                          <span className="ml-1 text-[10px] font-bold text-emerald-300">*</span>
+                          <span className="ml-1 text-xs font-bold text-emerald-300">*</span>
                         ) : null}
                       </td>
                     );
@@ -509,7 +509,7 @@ export default function IndiaRegionalView({
             </tbody>
           </table>
         </div>
-        <p className="mt-2 text-[11px] text-slate-400">
+        <p className="mt-2 text-xs text-slate-400">
           * Indicates statistical significance at α = 0.05 after Holm-Bonferroni correction across
           the 4 IMD seasons (or Hamed-Rao variance-corrected Mann-Kendall for overall monthly series).
         </p>

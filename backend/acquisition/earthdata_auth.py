@@ -19,15 +19,6 @@ def _find_netrc_path() -> Path | None:
     return None
 
 
-def _has_cds_config() -> tuple[bool, str]:
-    if os.environ.get("CDSAPI_KEY", "").strip():
-        return True, "env:CDSAPI_KEY"
-    cdsapirc = Path.home() / ".cdsapirc"
-    if cdsapirc.exists() and cdsapirc.is_file():
-        return True, f"file:{cdsapirc.name}"
-    return False, "unconfigured"
-
-
 def get_earthdata_token() -> str | None:
     """Return EARTHDATA_TOKEN from environment if configured (never logged or returned in public dicts)."""
     tok = os.environ.get("EARTHDATA_TOKEN", "").strip()
@@ -78,7 +69,6 @@ def get_auth_diagnostics() -> dict[str, Any]:
         edl_ok = False
         edl_method = "unconfigured"
 
-    cds_ok, cds_method = _has_cds_config()
     missing: list[str] = []
     instructions: list[str] = []
 
@@ -87,19 +77,12 @@ def get_auth_diagnostics() -> dict[str, Any]:
         instructions.append(
             "Set EARTHDATA_TOKEN (recommended EDL Bearer Token from urs.earthdata.nasa.gov) or create ~/.netrc (_netrc on Windows) for machine urs.earthdata.nasa.gov."
         )
-    if not cds_ok:
-        missing.append("Copernicus CDS API (CDSAPI_KEY or ~/.cdsapirc)")
-        instructions.append(
-            "Set CDSAPI_KEY and CDSAPI_URL or configure ~/.cdsapirc from cds.climate.copernicus.eu to download ERA5/CAMS data."
-        )
 
     return {
         "earthdata_authenticated": edl_ok,
         "earthdata_method": edl_method,
         "netrc_present": netrc_path is not None,
         "earthaccess_available": earthaccess_available,
-        "copernicus_configured": cds_ok,
-        "copernicus_method": cds_method,
         "appeears_ready": edl_ok,
         "missing_credentials": missing,
         "setup_instructions": instructions,

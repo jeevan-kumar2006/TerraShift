@@ -911,7 +911,444 @@ DATASET_CATALOG: list[dict[str, Any]] = [
         "data_limitations": "Crops under intensive fertilization can exceed biome-specific Light Use Efficiency assumptions.",
         "scientific_justification": "Directly quantifies photosynthetic carbon assimilation beyond spectral greenness indices.",
     },
+    {
+        "dataset_id": "OMNO2d",
+        "dataset_name": "OMI/Aura NO2 Cloud-Screened Total and Tropospheric Column L3 Global Gridded 0.25 degree",
+        "scientific_variable": "Tropospheric NO2 Column Density",
+        "variable_code": "NO2",
+        "domain": "atmospheric",
+        "collection_concept_id": "C1266136111-GES_DISC",
+        "product_version": "003",
+        "data_provider": "NASA GES DISC",
+        "variable_names": ["ColumnAmountNO2TropCloudScreened"],
+        "units": "10^15 molec/cm²",
+        "spatial_resolution": "0.25° × 0.25°",
+        "temporal_resolution": "Monthly (aggregated from L3 daily)",
+        "first_available_date": "2004-10-01",
+        "last_available_date": "Present",
+        "geographic_coverage": "Global (India subset 6.0°N–37.5°N, 68.0°E–97.5°E)",
+        "file_format": "HDF-EOS5 (.he5) / NetCDF4",
+        "quality_flags": ["CloudFraction < 0.30"],
+        "authentication_required": True,
+        "auth_provider": "NASA Earthdata Login",
+        "download_mechanism": "GES DISC OPeNDAP / Giovanni / Earthdata HTTPS",
+        "supports_spatial_subset": True,
+        "supports_temporal_subset": True,
+        "official_docs_url": "https://disc.gsfc.nasa.gov/datasets/OMNO2d_003/summary",
+        "data_limitations": "Cloud-screened (<30% cloud radiative fraction); row anomaly reduces swath coverage post-2009.",
+        "scientific_justification": "Directly measures satellite tropospheric nitrogen dioxide column over Indian urban-industrial corridors and thermal power belts.",
+    },
 ]
+
+TREND_VARIABLE_REGISTRY: dict[str, dict[str, Any]] = {
+    "MOD13C2": {
+        "id": "MOD13C2",
+        "parameter_code": "MOD13C2",
+        "parameter_name": "MODIS Vegetation Index (NDVI)",
+        "mission": "Terra",
+        "instrument": "MODIS",
+        "units": "NDVI (-0.2 to 1.0)",
+        "unit": "NDVI",
+        "temporal_coverage": "2000-02 to Present (Monthly)",
+        "temporal_resolution": "Monthly",
+        "spatial_resolution": "0.05° × 0.05° CMG",
+        "resolution": "0.05° × 0.05° (MODIS CMG)",
+        "source_type": "satellite",
+        "data_type": "satellite",
+        "source_badge": "Satellite: MODIS Terra",
+        "mission_source": "NASA EOS Terra — MODIS MOD13C2 v061 Monthly NDVI",
+        "collection": "MOD13C2 v061 (LP DAAC)",
+        "plain_definition": "Normalized Difference Vegetation Index (NDVI) measuring live green canopy density from red and near-infrared satellite reflectance.",
+        "question": "Where is vegetation greening or browning across India?",
+        "positive_label": "Greening Trend",
+        "negative_label": "Browning Trend",
+        "doi": "10.5067/MODIS/MOD13C2.061",
+        "scale_factor": 0.0001,
+        "add_offset": 0.0,
+        "fill_value": -3000.0,
+        "valid_range": [-0.2, 1.0],
+        "raw_valid_range": [-2000.0, 10000.0],
+        "qa_mask_rule": "VI Pixel Reliability in {0 (Good), 1 (Marginal)}; reject >= 2 (Snow/Ice, Cloud) or < 0",
+    },
+    "GPM_3IMERGM": {
+        "id": "GPM_3IMERGM",
+        "parameter_code": "GPM_3IMERGM",
+        "parameter_name": "GPM IMERG Satellite Precipitation",
+        "mission": "GPM",
+        "instrument": "GMI / Dual-frequency Precipitation Radar (DPR) Constellation",
+        "units": "mm/day",
+        "unit": "mm/day",
+        "temporal_coverage": "2000-06 to Present (Monthly)",
+        "temporal_resolution": "Monthly",
+        "spatial_resolution": "0.1° × 0.1°",
+        "resolution": "0.1° × 0.1° (GPM IMERG V07)",
+        "source_type": "satellite",
+        "data_type": "satellite",
+        "source_badge": "Satellite: GPM IMERG",
+        "mission_source": "NASA/JAXA GPM — IMERG Final Run Monthly (GPM_3IMERGM V07)",
+        "collection": "GPM_3IMERGM V07 (GES DISC)",
+        "plain_definition": "Multi-satellite microwave and infrared merged monthly precipitation rate calibrated with global rain gauges.",
+        "question": "Where is satellite-observed monsoon rainfall shifting?",
+        "positive_label": "Wetting Trend",
+        "negative_label": "Drying Trend",
+        "doi": "10.5067/GPM/IMERG/3B-MONTH/07",
+        "scale_factor": 1.0,
+        "add_offset": 0.0,
+        "fill_value": -9999.9,
+        "valid_range": [0.0, 250.0],
+        "raw_valid_range": [0.0, 250.0],
+        "qa_mask_rule": "precipitationQualityIndex >= 0.20; reject negative or fill (-9999.9)",
+    },
+    "OMNO2d": {
+        "id": "OMNO2d",
+        "parameter_code": "OMNO2d",
+        "parameter_name": "OMI Tropospheric NO2 Column",
+        "mission": "Aura",
+        "instrument": "OMI (Ozone Monitoring Instrument)",
+        "units": "10^15 molec/cm²",
+        "unit": "10^15 molec/cm²",
+        "temporal_coverage": "2004-10 to Present (Monthly)",
+        "temporal_resolution": "Monthly",
+        "spatial_resolution": "0.25° × 0.25°",
+        "resolution": "0.25° × 0.25° (Aura OMI L3)",
+        "source_type": "satellite",
+        "data_type": "satellite",
+        "source_badge": "Satellite: Aura OMI",
+        "mission_source": "NASA EOS Aura — OMI Cloud-Screened Tropospheric NO2 (OMNO2d v003)",
+        "collection": "OMNO2d v003 (GES DISC)",
+        "plain_definition": "Satellite-observed column density of nitrogen dioxide (NO2) gas in the lower atmosphere, a key indicator of traffic, power plant, and urban air pollution.",
+        "question": "Where is nitrogen dioxide air pollution rising or falling?",
+        "positive_label": "NO2 Increasing",
+        "negative_label": "NO2 Decreasing",
+        "doi": "10.5067/Aura/OMI/DATA3007",
+        "scale_factor": 1e-15,
+        "add_offset": 0.0,
+        "fill_value": -1.26765e30,
+        "valid_range": [0.0, 100.0],
+        "raw_valid_range": [0.0, 1e17],
+        "qa_mask_rule": "Cloud radiative fraction < 0.30 (30%); reject negative or fill (-1.26765e30)",
+    },
+    "MOD11C3": {
+        "id": "MOD11C3",
+        "parameter_code": "MOD11C3",
+        "parameter_name": "MODIS Land Surface Temperature (LST)",
+        "mission": "Terra",
+        "instrument": "MODIS",
+        "units": "°C",
+        "unit": "°C",
+        "temporal_coverage": "2000-02 to Present (Monthly)",
+        "temporal_resolution": "Monthly",
+        "spatial_resolution": "0.05° × 0.05° CMG",
+        "resolution": "0.05° × 0.05° (MODIS CMG)",
+        "source_type": "satellite",
+        "data_type": "satellite",
+        "source_badge": "Satellite: MODIS Terra",
+        "mission_source": "NASA EOS Terra — MODIS MOD11C3 v061 Monthly Land Surface Temperature",
+        "collection": "MOD11C3 v061 (LP DAAC)",
+        "plain_definition": "Satellite thermal infrared skin temperature of the land surface (soil, rock, urban roofs, and forest canopy) under clear skies.",
+        "question": "Where is land surface skin temperature warming fastest?",
+        "positive_label": "Surface Warming",
+        "negative_label": "Surface Cooling",
+        "doi": "10.5067/MODIS/MOD11C3.061",
+        "scale_factor": 0.02,
+        "add_offset": -273.15,
+        "fill_value": 0.0,
+        "valid_range": [-50.0, 70.0],
+        "raw_valid_range": [7500.0, 65535.0],
+        "qa_mask_rule": "QC_Day mandatory QA bits (bits 0-1) in {0, 1}; reject cloud/fill (0 DN)",
+    },
+    "T2M": {
+        "id": "T2M",
+        "parameter_code": "T2M",
+        "parameter_name": "2-Meter Surface Air Temperature",
+        "mission": "MERRA-2 / NASA POWER",
+        "instrument": "GEOS-5 Assimilation System",
+        "units": "°C",
+        "unit": "°C",
+        "temporal_coverage": "1981-01 to Present (Monthly)",
+        "temporal_resolution": "Monthly",
+        "spatial_resolution": "0.5° × 0.625°",
+        "resolution": "0.5° × 0.625° MERRA-2 Grid",
+        "source_type": "model/reanalysis",
+        "data_type": "reanalysis",
+        "source_badge": "Model: NASA POWER / MERRA-2",
+        "mission_source": "NASA POWER — MERRA-2 Atmospheric Reanalysis (M2TMNXSLV)",
+        "collection": "MERRA-2 M2TMNXSLV (GMAO)",
+        "plain_definition": "Monthly mean air temperature at 2 meters above ground level from NASA GMAO MERRA-2 atmospheric reanalysis.",
+        "question": "Where in India is air temperature warming fastest?",
+        "positive_label": "Warming Trend",
+        "negative_label": "Cooling Trend",
+        "doi": "10.5067/APJ6EEN0PD0Z",
+        "scale_factor": 1.0,
+        "add_offset": 0.0,
+        "fill_value": -999.0,
+        "valid_range": [-60.0, 60.0],
+        "raw_valid_range": [-60.0, 60.0],
+        "qa_mask_rule": "Reject NASA POWER fill values (<= -990.0)",
+    },
+    "PRECTOTCORR": {
+        "id": "PRECTOTCORR",
+        "parameter_code": "PRECTOTCORR",
+        "parameter_name": "Corrected Monthly Precipitation (MERRA-2)",
+        "mission": "MERRA-2 / NASA POWER",
+        "instrument": "GEOS-5 Surface Flux Diagnostics",
+        "units": "mm/day",
+        "unit": "mm/day",
+        "temporal_coverage": "1981-01 to Present (Monthly)",
+        "temporal_resolution": "Monthly",
+        "spatial_resolution": "0.5° × 0.625°",
+        "resolution": "0.5° × 0.625° MERRA-2 Grid",
+        "source_type": "model/reanalysis",
+        "data_type": "reanalysis_assimilated",
+        "source_badge": "Model: NASA POWER / MERRA-2",
+        "mission_source": "NASA POWER — MERRA-2 Bias-Corrected Precipitation (M2TMNXFLX)",
+        "collection": "MERRA-2 M2TMNXFLX (GMAO)",
+        "plain_definition": "Observation-corrected monthly average daily rainfall rate from NASA MERRA-2 reanalysis.",
+        "question": "Where is long-term reanalysis rainfall shifting?",
+        "positive_label": "Wetting Trend",
+        "negative_label": "Drying Trend",
+        "doi": "10.5067/0JRLVL8YV2Y4",
+        "scale_factor": 1.0,
+        "add_offset": 0.0,
+        "fill_value": -999.0,
+        "valid_range": [0.0, 250.0],
+        "raw_valid_range": [0.0, 250.0],
+        "qa_mask_rule": "Reject negative or NASA POWER fill values (<= -990.0)",
+    },
+    "GWETROOT": {
+        "id": "GWETROOT",
+        "parameter_code": "GWETROOT",
+        "parameter_name": "Root-Zone Soil Wetness",
+        "mission": "MERRA-2 / NASA POWER",
+        "instrument": "MERRA-2 Catchment Land Surface Model",
+        "units": "fraction (0–1)",
+        "unit": "fraction (0–1)",
+        "temporal_coverage": "1981-01 to Present (Monthly)",
+        "temporal_resolution": "Monthly",
+        "spatial_resolution": "0.5° × 0.625°",
+        "resolution": "0.5° × 0.625° MERRA-2 Grid",
+        "source_type": "model/reanalysis",
+        "data_type": "model_derived",
+        "source_badge": "Model: NASA POWER / MERRA-2",
+        "mission_source": "NASA POWER — MERRA-2 Land Surface Model (M2TMNXLND)",
+        "collection": "MERRA-2 M2TMNXLND (GMAO)",
+        "plain_definition": "Model-derived water saturation fraction (0 to 1) in the top 100 cm root zone where crops draw moisture.",
+        "question": "Where is root-zone soil moisture drying or wetting?",
+        "positive_label": "Soil Wetting",
+        "negative_label": "Soil Drying",
+        "doi": "10.5067/RKPHT8KC1Y1T",
+        "scale_factor": 1.0,
+        "add_offset": 0.0,
+        "fill_value": -999.0,
+        "valid_range": [0.0, 1.0],
+        "raw_valid_range": [0.0, 1.0],
+        "qa_mask_rule": "Reject values outside [0.0, 1.0] or fill (<= -990.0)",
+    },
+    "GWETPROF": {
+        "id": "GWETPROF",
+        "parameter_code": "GWETPROF",
+        "parameter_name": "Total Profile Soil Wetness",
+        "mission": "MERRA-2 / NASA POWER",
+        "instrument": "MERRA-2 Catchment Land Surface Model",
+        "units": "fraction (0–1)",
+        "unit": "fraction (0–1)",
+        "temporal_coverage": "1981-01 to Present (Monthly)",
+        "temporal_resolution": "Monthly",
+        "spatial_resolution": "0.5° × 0.625°",
+        "resolution": "0.5° × 0.625° MERRA-2 Grid",
+        "source_type": "model/reanalysis",
+        "data_type": "model_derived",
+        "source_badge": "Model: NASA POWER / MERRA-2",
+        "mission_source": "NASA POWER — MERRA-2 Land Surface Model (M2TMNXLND)",
+        "collection": "MERRA-2 M2TMNXLND (GMAO)",
+        "plain_definition": "Model-derived total soil column moisture fraction (0 to 1) from the surface down to bedrock.",
+        "question": "Where is deep profile soil moisture changing?",
+        "positive_label": "Profile Wetting",
+        "negative_label": "Profile Drying",
+        "doi": "10.5067/RKPHT8KC1Y1T",
+        "scale_factor": 1.0,
+        "add_offset": 0.0,
+        "fill_value": -999.0,
+        "valid_range": [0.0, 1.0],
+        "raw_valid_range": [0.0, 1.0],
+        "qa_mask_rule": "Reject values outside [0.0, 1.0] or fill (<= -990.0)",
+    },
+    "QV2M": {
+        "id": "QV2M",
+        "parameter_code": "QV2M",
+        "parameter_name": "2-Meter Specific Humidity",
+        "mission": "MERRA-2 / NASA POWER",
+        "instrument": "GEOS-5 Assimilation System",
+        "units": "g/kg",
+        "unit": "g/kg",
+        "temporal_coverage": "1981-01 to Present (Monthly)",
+        "temporal_resolution": "Monthly",
+        "spatial_resolution": "0.5° × 0.625°",
+        "resolution": "0.5° × 0.625° MERRA-2 Grid",
+        "source_type": "model/reanalysis",
+        "data_type": "reanalysis",
+        "source_badge": "Model: NASA POWER / MERRA-2",
+        "mission_source": "NASA POWER — MERRA-2 Atmospheric Reanalysis (M2TMNXSLV)",
+        "collection": "MERRA-2 M2TMNXSLV (GMAO)",
+        "plain_definition": "Mass of water vapor in grams per kilogram of moist air at 2 meters above the ground.",
+        "question": "Where is near-surface atmospheric humidity rising?",
+        "positive_label": "Humidity Rising",
+        "negative_label": "Humidity Falling",
+        "doi": "10.5067/APJ6EEN0PD0Z",
+        "scale_factor": 1.0,
+        "add_offset": 0.0,
+        "fill_value": -999.0,
+        "valid_range": [0.0, 45.0],
+        "raw_valid_range": [0.0, 45.0],
+        "qa_mask_rule": "Reject negative or fill values (<= -990.0)",
+    },
+}
+
+
+def get_trend_variable_registry() -> list[dict[str, Any]]:
+    """Return all trend-enabled variables (both satellite and model/reanalysis)."""
+    return list(TREND_VARIABLE_REGISTRY.values())
+
+
+def get_satellite_trend_variables() -> list[dict[str, Any]]:
+    """Return all trend-enabled variables with source_type == 'satellite'."""
+    return [v for v in TREND_VARIABLE_REGISTRY.values() if v.get("source_type") == "satellite"]
+
+
+def parse_and_scale_satellite_series(
+    dataset_id: str,
+    raw_values: list[float | int | None],
+    qa_flags: list[int | float | None] | None = None,
+) -> list[float | None]:
+    """
+    Apply dataset-specific fill-value filtering, QA flag masking, scale_factor,
+    and add_offset per official NASA dataset documentation.
+    """
+    code = dataset_id.strip()
+    if code not in TREND_VARIABLE_REGISTRY:
+        for k in TREND_VARIABLE_REGISTRY:
+            if k.upper() == code.upper():
+                code = k
+                break
+    spec = TREND_VARIABLE_REGISTRY.get(code)
+    if not spec:
+        raise ValueError(f"Unsupported trend variable/dataset ID: {dataset_id}")
+
+    n = len(raw_values)
+    qa_list = qa_flags if (qa_flags is not None and len(qa_flags) == n) else [None] * n
+    out: list[float | None] = []
+
+    for val, qa in zip(raw_values, qa_list):
+        if val is None:
+            out.append(None)
+            continue
+        try:
+            fval = float(val)
+        except (TypeError, ValueError):
+            out.append(None)
+            continue
+        if not (fval == fval) or abs(fval) == float("inf"):
+            out.append(None)
+            continue
+
+        if code == "MOD13C2":
+            # QA check: VI Pixel Reliability in {0, 1}
+            if qa is not None:
+                try:
+                    q_int = int(qa)
+                    if q_int < 0 or q_int >= 2:
+                        out.append(None)
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            # Raw integer DN [-2000, 10000] with fill -3000, or pre-scaled [-0.2, 1.0]
+            if fval <= -2000.5 or fval == -3000.0 or fval <= -990.0:
+                out.append(None)
+                continue
+            if abs(fval) > 1.5:
+                if fval < -2000.0 or fval > 10000.0:
+                    out.append(None)
+                    continue
+                scaled = round(fval * 0.0001, 5)
+            else:
+                if fval < -0.2 or fval > 1.0:
+                    out.append(None)
+                    continue
+                scaled = round(fval, 5)
+            out.append(scaled)
+
+        elif code == "GPM_3IMERGM":
+            # QA check: precipitationQualityIndex >= 0.20
+            if qa is not None:
+                try:
+                    if float(qa) < 0.20:
+                        out.append(None)
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            if fval < 0.0 or fval <= -990.0 or fval > 5000.0:
+                out.append(None)
+                continue
+            out.append(round(fval, 4))
+
+        elif code == "OMNO2d":
+            # QA check: CloudFraction < 0.30
+            if qa is not None:
+                try:
+                    if float(qa) >= 0.30 or float(qa) < 0.0:
+                        out.append(None)
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            if fval < 0.0 or fval <= -990.0 or fval <= -1e20:
+                out.append(None)
+                continue
+            # If in raw molecules/cm^2 (> 1e12), apply scale_factor 1e-15
+            if fval > 1e12:
+                scaled = round(fval * 1e-15, 4)
+            else:
+                scaled = round(fval, 4)
+            if scaled < 0.0 or scaled > 100.0:
+                out.append(None)
+                continue
+            out.append(scaled)
+
+        elif code == "MOD11C3":
+            # QA check: mandatory QA bits 0-1 in {0, 1}
+            if qa is not None:
+                try:
+                    if (int(qa) & 0b11) >= 2:
+                        out.append(None)
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            if fval == 0.0 or fval <= -990.0:
+                out.append(None)
+                continue
+            # Raw DN [7500, 65535] -> K = DN * 0.02 -> C = K - 273.15
+            if fval >= 7500.0:
+                if fval > 65535.0:
+                    out.append(None)
+                    continue
+                c_val = round(fval * 0.02 - 273.15, 4)
+            elif fval >= 200.0 and fval <= 350.0:
+                c_val = round(fval - 273.15, 4)
+            else:
+                c_val = round(fval, 4)
+            if c_val < -50.0 or c_val > 70.0:
+                out.append(None)
+                continue
+            out.append(c_val)
+
+        else:
+            # Model / Reanalysis variables
+            vmin, vmax = spec["valid_range"]
+            if fval <= -990.0 or fval < vmin or fval > vmax:
+                out.append(None)
+                continue
+            out.append(round(fval * float(spec["scale_factor"]) + float(spec["add_offset"]), 5))
+
+    return out
 
 
 def get_dataset_by_id(dataset_id: str) -> dict[str, Any] | None:

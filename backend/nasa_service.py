@@ -1,4 +1,4 @@
-"""Hybrid NASA POWER, NASA CMR, AppEEARS, NOAA CDO, KNMI & CSA GeoMet data service."""
+"""Hybrid NASA POWER, NASA CMR, AppEEARS & Giovanni India-exclusive Earth observation service."""
 
 from __future__ import annotations
 
@@ -17,15 +17,23 @@ from typing import Any
 import httpx
 import pandas as np_pd
 
-CACHE_FILE = Path(__file__).resolve().parent / "cases_cache.json"
-NASA_POWER_URL = "https://power.larc.nasa.gov/api/temporal/monthly/point"
-NASA_CMR_COLLECTIONS_URL = "https://cmr.earthdata.nasa.gov/search/collections.json"
-NASA_APPEEARS_PRODUCTS_URL = "https://appeears.earthdatacloud.nasa.gov/api/v1/product"
-CSA_GEOMET_CLIMATE_URL = "https://api.weather.gc.ca/collections/climate-monthly/items"
-CSA_GEOMET_HYDRO_URL = "https://api.weather.gc.ca/collections/hydrometric-monthly-mean/items"
-NOAA_CDO_STATIONS_URL = "https://www.ncei.noaa.gov/cdo-web/api/v2/stations"
+from config import (
+    CACHE_FILE,
+    INDIA_BOUNDS,
+    MAX_FALLBACK_RADIUS_KM,
+    NASA_APPEEARS_PRODUCTS_URL,
+    NASA_CMR_COLLECTIONS_URL,
+    NASA_POWER_POINT_URL as NASA_POWER_URL,
+)
+from acquisition.dataset_registry import TREND_VARIABLE_REGISTRY
+from acquisition.spatial_subset import (
+    compute_area_weighted_series,
+    compute_terrain_quality_flags,
+    sample_polygon_grid_points,
+)
 
-# Parameter-to-NASA POWER community routing and offline fallback radius guard
+
+# Parameter-to-NASA POWER community routing
 POWER_COMMUNITY_MAP: dict[str, str] = {
     "T2M": "AG",
     "PRECTOTCORR": "AG",
@@ -33,15 +41,6 @@ POWER_COMMUNITY_MAP: dict[str, str] = {
     "GWETPROF": "AG",
     "QV2M": "AG",
     "PS": "AG",
-}
-MAX_FALLBACK_RADIUS_KM = float(os.environ.get("MAX_FALLBACK_RADIUS_KM", "500.0"))
-
-# Exclusive geographical bounds for India-focused analysis
-INDIA_BOUNDS: dict[str, float] = {
-    "lat_min": 6.0,
-    "lat_max": 37.5,
-    "lon_min": 68.0,
-    "lon_max": 97.5,
 }
 
 
@@ -330,14 +329,23 @@ def _slice_window(
 
 
 def get_parameter_metadata(parameter: str) -> dict[str, str]:
-    """Retrieve student-friendly metadata for a NASA parameter code."""
-    code = parameter.upper()
+    """Retrieve student-friendly metadata for a NASA POWER or satellite parameter code."""
+    raw = parameter.strip()
+    if raw in TREND_VARIABLE_REGISTRY:
+        spec = TREND_VARIABLE_REGISTRY[raw]
+        return {k: str(v) for k, v in spec.items() if isinstance(v, (str, int, float))}
+    for k, spec in TREND_VARIABLE_REGISTRY.items():
+        if k.upper() == raw.upper():
+            return {sk: str(sv) for sk, sv in spec.items() if isinstance(sv, (str, int, float))}
+    code = raw.upper()
     if code not in PARAMETER_METADATA:
         return {
             "parameter_code": code,
             "parameter_name": code,
             "unit": "units",
-            "mission_source": "Multi-Agency Earth Observation",
+            "mission_source": "NASA Earth Observation",
+            "source_type": "external",
+            "source_badge": "External / Imported Series",
             "collection": "External / Custom Series",
             "data_type": "external",
             "temporal_resolution": "Monthly",
@@ -347,7 +355,109 @@ def get_parameter_metadata(parameter: str) -> dict[str, str]:
             "positive_label": "Increasing",
             "negative_label": "Decreasing",
         }
-    return PARAMETER_METADATA[code]
+    meta = dict(PARAMETER_METADATA[code])
+    meta.setdefault("source_type", "model/reanalysis")
+    meta.setdefault("source_badge", "Model: NASA POWER / MERRA-2")
+    return meta
+
+
+async def fetch_region_power_monthly(
+    region_id: str,
+    parameter: str = "T2M",
+    start_year: int = 1990,
+    end_year: int = 2025,
+) -> dict[str, Any]:
+    """
+    Mask a regular 0.5-deg grid with the India state/district polygon, sample interior
+    grid points (never centroid-only when multi-cell coverage exists), fetch NASA POWER
+    monthly series concurrently, and compute a cos(latitude) area-weighted mean.
+    """
+    grid_info = sample_polygon_grid_points(region_id, resolution_deg=0.5, min_cells=3, max_api_points=9)
+    sampled = grid_info["sampled_points"]
+    region_meta = grid_info["region_meta"]
+
+    sem = asyncio.Semaphore(5)
+
+    async def _fetch_one(pt: dict[str, float]) -> dict[str, Any] | None:
+        async with sem:
+            try:
+                res = await fetch_nasa_monthly(
+                    pt["lat"],
+                    pt["lon"],
+                    parameter=parameter,
+                    start_year=start_year,
+                    end_year=end_year,
+                )
+                return {
+                    "lat": pt["lat"],
+                    "lon": pt["lon"],
+                    "timestamps": res["timestamps"],
+                    "values": res["values"],
+                    "data_status": res.get("data_status", "live"),
+                    "provenance": res.get("provenance"),
+                }
+            except Exception:
+                return None
+
+    fetched = await asyncio.gather(*[_fetch_one(pt) for pt in sampled])
+    valid_cells = [c for c in fetched if c is not None and c.get("timestamps")]
+    if not valid_cells:
+        raise RuntimeError(
+            f"Unable to retrieve NASA POWER grid cells for region '{region_meta['region_name']}'."
+        )
+
+    agg = compute_area_weighted_series(valid_cells)
+    valid_vals = [v for v in agg["values"] if v is not None]
+    mean_val = float(sum(valid_vals) / len(valid_vals)) if valid_vals else None
+
+    q_flags = compute_terrain_quality_flags(
+        geom=grid_info["geom"],
+        mean_t2m_c=mean_val if parameter.upper() == "T2M" else None,
+        mean_precip_mm_day=mean_val if parameter.upper() == "PRECTOTCORR" else None,
+    )
+    if grid_info["low_cell_count_warning"]:
+        q_flags.append({
+            "flag": "low_grid_cell_count",
+            "severity": "warning",
+            "grid_cells_used": grid_info["grid_cells_used"],
+            "message": grid_info["low_cell_count_warning"],
+        })
+
+    statuses = {c.get("data_status", "live") for c in valid_cells}
+    agg_status = "live" if "live" in statuses else ("cache" if "cache" in statuses else "offline_fallback")
+
+    return {
+        "parameter": parameter.upper(),
+        "region_id": region_meta["region_id"],
+        "region_name": region_meta["region_name"],
+        "region_level": region_meta.get("region_level", "state"),
+        "lat": round(float(grid_info["geom"].centroid.y), 4),
+        "lon": round(float(grid_info["geom"].centroid.x), 4),
+        "bounding_box": grid_info["bbox"],
+        "timestamps": agg["timestamps"],
+        "values": agg["values"],
+        "data_status": agg_status,
+        "dataset_tag": "live" if agg_status == "live" else "cached",
+        "region_coverage": {
+            "grid_cells_used": grid_info["grid_cells_used"],
+            "sampled_cells_count": len(valid_cells),
+            "area_covered_pct": grid_info["area_covered_pct"],
+            "weighting_method": agg["weighting_method"],
+            "low_cell_count_warning": grid_info["low_cell_count_warning"],
+        },
+        "quality_flags": q_flags,
+        "provenance": build_series_provenance(
+            parameter=parameter.upper(),
+            requested_lat=round(float(grid_info["geom"].centroid.y), 4),
+            requested_lon=round(float(grid_info["geom"].centroid.x), 4),
+            source_lat=round(float(grid_info["geom"].centroid.y), 4),
+            source_lon=round(float(grid_info["geom"].centroid.x), 4),
+            retrieval_status=f"region_{agg_status}_{len(valid_cells)}_cells",
+            start_year=start_year,
+            end_year=end_year,
+            is_synthetic=False,
+        ),
+    }
 
 
 def build_series_provenance(
@@ -749,106 +859,42 @@ def build_partner_deep_links(
         {
             "id": "giovanni",
             "agency": "NASA GES DISC",
-            "title": "NASA Giovanni Time-Series Portal (Manual Export → Import)",
-            "category": "NASA Data & Resources",
-            "description": f"Manual workflow: export area-averaged monthly CSV for bbox [{bbox_str}] ({g_var}) and upload via Import CSV.",
+            "title": "NASA Giovanni Time-Series Portal (Export CSV → Analyse)",
+            "category": "NASA India Earth Observation",
+            "description": f"Export area-averaged monthly CSV for bbox [{bbox_str}] ({g_var}) and upload via Import CSV.",
             "url": giovanni_url,
         },
         {
             "id": "hydrology_ts",
             "agency": "NASA GES DISC",
-            "title": "Hydrology Time Series / Data Rods (Manual Export → Import)",
-            "category": "NASA Data & Resources",
-            "description": f"Manual workflow: generate GLDAS/NLDAS ASCII/CSV rods at ({lat:.2f}°, {lon:.2f}°) and import into TerraShift.",
+            "title": "Hydrology Time Series / Data Rods",
+            "category": "NASA India Earth Observation",
+            "description": f"Generate GLDAS ASCII/CSV rods at ({lat:.2f}°N, {lon:.2f}°E) and import into TerraShift.",
             "url": hydro_url,
         },
         {
             "id": "appeears",
             "agency": "NASA LP DAAC",
-            "title": "NASA AppEEARS Portal (Catalog Discovery + Manual Extraction)",
-            "category": "NASA Data & Resources",
-            "description": "Live product catalog discovery in-app; point/polygon extraction requires Earthdata login on AppEEARS and CSV import.",
+            "title": "NASA AppEEARS Portal (MODIS / SMAP / ECOSTRESS)",
+            "category": "NASA India Earth Observation",
+            "description": "Live product catalog discovery in-app; point/polygon extraction via Earthdata login.",
             "url": "https://appeears.earthdatacloud.nasa.gov/",
         },
         {
-            "id": "noaa_cdo",
-            "agency": "NOAA NCEI",
-            "title": "Climate Data Online / CDO (Station Discovery + Manual CSV)",
-            "category": "NASA Data & Resources",
-            "description": "Station metadata discovery via NOAA_CDO_TOKEN; historical GSOM CSV exports can be uploaded via Import CSV.",
-            "url": "https://www.ncei.noaa.gov/cdo-web/",
+            "id": "isro_mosdac",
+            "agency": "ISRO / MOSDAC",
+            "title": "ISRO Meteorological & Oceanographic Satellite Data Archival Centre",
+            "category": "Indian Meteorological & Space Context",
+            "description": "INSAT-3D/3DR, Oceansat, and India monsoon contextual reference portal.",
+            "url": "https://www.mosdac.gov.in/",
         },
         {
-            "id": "ntrs_seawifs",
-            "agency": "NASA NTRS",
-            "title": "SeaWiFS Coastal Chlorophyll Time-Series Study (PDF)",
-            "category": "NASA Data & Resources",
-            "description": "Reference study demonstrating satellite time-series creation and trend significance testing in river plumes.",
-            "url": "https://ntrs.nasa.gov/api/citations/20090042747/downloads/20090042747.pdf",
-        },
-        {
-            "id": "knmi_climexp",
-            "agency": "KNMI Partner",
-            "title": "KNMI Climate Explorer (Manual Export → Import)",
-            "category": "Space Agency Partner Resources",
-            "description": "Manual workflow: export 13-column .dat/.txt tables from KNMI Climate Explorer and upload via Import CSV.",
-            "url": "https://climexp.knmi.nl/",
-        },
-        {
-            "id": "stats_methods_medium",
-            "agency": "Methodology Guide",
-            "title": "Statistical Test Methods for Time-Series Trends",
-            "category": "Space Agency Partner Resources",
-            "description": "Reference article on Mann-Kendall, Sen's slope, and parametric trend detection.",
-            "url": "https://medium.com/@snp.kriss/statistical-test-methods-to-detect-trends-in-time-series-data-b361a0ec530b",
-        },
-        {
-            "id": "statsig_guide",
-            "agency": "Methodology Guide",
-            "title": "Comprehensive Guide to Statistical Significance",
-            "category": "Space Agency Partner Resources",
-            "description": "Foundational guide to p-values, confidence intervals, alpha thresholds, and statistical power.",
-            "url": "https://www.statsig.com/perspectives/a-comprehensive-guide-to-statistical-significance",
-        },
-        {
-            "id": "csa_rcm",
-            "agency": "CSA (Canada)",
-            "title": "RADARSAT Constellation Mission (RCM) Open Data",
-            "category": "CSA (Canadian Space Agency)",
-            "description": "All-weather day/night SAR Earth observation for maritime ice, disaster management, and ecosystems.",
-            "url": "https://donnees-data.asc-csa.gc.ca/en/dataset/rcm",
-        },
-        {
-            "id": "csa_geoca",
-            "agency": "CSA / Geo.ca",
-            "title": "Geo.ca — Canada's Open Geospatial Information",
-            "category": "CSA (Canadian Space Agency)",
-            "description": "Definitive source for Canadian environmental monitoring, permafrost, and water datasets.",
-            "url": "https://geo.ca/",
-        },
-        {
-            "id": "csa_swot",
-            "agency": "NASA / CNES / CSA",
-            "title": "SWOT Mission (Surface Water & Ocean Topography)",
-            "category": "CSA (Canadian Space Agency)",
-            "description": "Surveys 90% of Earth's surface water, measuring elevation changes in rivers, lakes, and reservoirs.",
-            "url": "https://www.asc-csa.gc.ca/eng/satellites/swot/",
-        },
-        {
-            "id": "csa_ecosystems",
-            "agency": "CSA (Canada)",
-            "title": "Monitoring & Protecting Our Ecosystems from Space",
-            "category": "CSA (Canadian Space Agency)",
-            "description": "How satellite observations track deforestation, wetlands, agriculture, and coastal shifts.",
-            "url": "https://www.asc-csa.gc.ca/eng/satellites/everyday-lives/monitoring-and-protecting-our-ecosystems-from-space.asp",
-        },
-        {
-            "id": "csa_sar_tutorial",
-            "agency": "CSA GitHub",
-            "title": "Synthetic Aperture Radar (SAR) Python & QGIS Tutorial",
-            "category": "CSA (Canadian Space Agency)",
-            "description": "Practical Python workflows for accessing, processing, and visualizing RADARSAT SAR imagery.",
-            "url": "https://github.com/asc-csa/Synthetic_Aperture_Radar_Tutorial",
+            "id": "imd_india",
+            "agency": "IMD (India Meteorological Department)",
+            "title": "IMD Gridded Climate & Monsoon Reference",
+            "category": "Indian Meteorological & Space Context",
+            "description": "Official Indian Meteorological Department seasonal (DJF, MAM, JJAS, OND) climatology reference.",
+            "url": "https://mausam.imd.gov.in/",
         },
     ]
 
@@ -861,38 +907,20 @@ async def fetch_partner_intel(
     end_year: int = 2025,
 ) -> dict[str, Any]:
     """
-    Query live public endpoints from NASA CMR (SWOT/SeaWiFS/MODIS/GPM), NASA AppEEARS,
-    CSA Geo.ca / MSC GeoMet (Canadian climate & hydrometric stations), and NOAA CDO.
-    Gracefully degrades if any individual external service times out.
+    Query live public endpoints from NASA CMR (MODIS/GPM/OMI/SMAP/MOPITT) and NASA AppEEARS
+    for India coordinates.
     """
     global _APPEEARS_CACHE
     box = compute_bounding_box(lat, lon)
     bbox_str = f"{box['west']},{box['south']},{box['east']},{box['north']}"
-    search_box = f"{round(lon - 2.5, 2)},{round(lat - 2.5, 2)},{round(lon + 2.5, 2)},{round(lat + 2.5, 2)}"
 
     cmr_collections: list[dict[str, str]] = []
     appeears_products: list[dict[str, str]] = []
-    csa_stations: list[dict[str, Any]] = []
-    noaa_status = "Set NOAA_CDO_TOKEN in env for live NCEI GSOM station queries (portal link active)."
 
     async with httpx.AsyncClient(timeout=4.5, follow_redirects=True) as client:
-        # 1. NASA CMR Live Satellite Collections (including SWOT & SeaWiFS)
         cmr_task = client.get(
             NASA_CMR_COLLECTIONS_URL,
-            params={"bounding_box": bbox_str, "page_size": 5},
-        )
-        swot_task = client.get(
-            NASA_CMR_COLLECTIONS_URL,
-            params={"keyword": "SWOT", "bounding_box": bbox_str, "page_size": 2},
-        )
-        # 2. CSA GeoMet Hydrometric & Climate stations in or near bounding box
-        csa_hydro_task = client.get(
-            CSA_GEOMET_HYDRO_URL,
-            params={"f": "json", "bbox": search_box, "limit": 3},
-        )
-        csa_clim_task = client.get(
-            CSA_GEOMET_CLIMATE_URL,
-            params={"f": "json", "bbox": search_box, "limit": 3},
+            params={"bounding_box": bbox_str, "page_size": 6},
         )
         appeears_task = (
             client.get(NASA_APPEEARS_PRODUCTS_URL) if _APPEEARS_CACHE is None else None
@@ -900,73 +928,26 @@ async def fetch_partner_intel(
 
         results = await asyncio.gather(
             cmr_task,
-            swot_task,
-            csa_hydro_task,
-            csa_clim_task,
-            *( [appeears_task] if appeears_task is not None else [] ),
+            *([appeears_task] if appeears_task is not None else []),
             return_exceptions=True,
         )
 
-        # Parse CMR
-        for res in (results[0], results[1]):
-            if isinstance(res, httpx.Response) and res.status_code == 200:
-                entries = res.json().get("feed", {}).get("entry", [])
-                for e in entries:
-                    short_name = e.get("short_name") or e.get("dataset_id", "NASA Dataset")
-                    if not any(c["short_name"] == short_name for c in cmr_collections):
-                        cmr_collections.append({
-                            "short_name": short_name,
-                            "title": e.get("title", short_name),
-                            "data_center": e.get("data_center", "NASA EOSDIS"),
-                            "summary": (e.get("summary") or "")[:160],
-                        })
-
-        # Parse CSA GeoMet Hydrometric & Climate features
-        for kind, res in [("SWOT / Hydrometric Gauge", results[2]), ("CSA / MSC Climate Station", results[3])]:
-            if isinstance(res, httpx.Response) and res.status_code == 200:
-                feats = res.json().get("features", [])
-                for f in feats[:2]:
-                    props = f.get("properties", {})
-                    st_name = (
-                        props.get("STATION_NAME")
-                        or props.get("CLIMATE_IDENTIFIER")
-                        or props.get("STATION_NUMBER")
-                        or "Canadian Station"
-                    )
-                    csa_stations.append({
-                        "type": kind,
-                        "station_name": str(st_name),
-                        "station_id": str(props.get("STATION_NUMBER") or props.get("CLIMATE_IDENTIFIER") or ""),
-                        "province": str(props.get("PROVINCE_CODE") or props.get("PROV_STATE_TERR_CODE") or "CA"),
-                        "sample_date": str(props.get("LOCAL_DATE") or props.get("DATE") or ""),
-                        "sample_metric": (
-                            f"Level: {props.get('MONTHLY_MEAN_WATER_LEVEL')} m / Flow: {props.get('MONTHLY_MEAN_DISCHARGE')} m³/s"
-                            if "Hydrometric" in kind
-                            else f"Mean Temp: {props.get('MEAN_TEMPERATURE')} °C / Precip: {props.get('TOTAL_PRECIPITATION')} mm"
-                        ),
+        if isinstance(results[0], httpx.Response) and results[0].status_code == 200:
+            entries = results[0].json().get("feed", {}).get("entry", [])
+            for e in entries:
+                short_name = e.get("short_name") or e.get("dataset_id", "NASA Dataset")
+                if not any(c["short_name"] == short_name for c in cmr_collections):
+                    cmr_collections.append({
+                        "short_name": short_name,
+                        "title": e.get("title", short_name),
+                        "data_center": e.get("data_center", "NASA EOSDIS"),
+                        "summary": (e.get("summary") or "")[:160],
                     })
 
-        # Parse AppEEARS Catalog
-        if appeears_task is not None and len(results) >= 5 and isinstance(results[4], httpx.Response):
-            if results[4].status_code == 200 and isinstance(results[4].json(), list):
-                _APPEEARS_CACHE = results[4].json()
+        if appeears_task is not None and len(results) >= 2 and isinstance(results[1], httpx.Response):
+            if results[1].status_code == 200 and isinstance(results[1].json(), list):
+                _APPEEARS_CACHE = results[1].json()
 
-        # Optional NOAA CDO v2 check if token present
-        noaa_token = os.environ.get("NOAA_CDO_TOKEN", "").strip()
-        if noaa_token:
-            try:
-                n_resp = await client.get(
-                    NOAA_CDO_STATIONS_URL,
-                    headers={"token": noaa_token},
-                    params={"extent": f"{box['south']},{box['west']},{box['north']},{box['east']}", "limit": 3},
-                )
-                if n_resp.status_code == 200:
-                    st_list = n_resp.json().get("results", [])
-                    noaa_status = f"NOAA CDO Live: {len(st_list)} stations matched in grid cell."
-            except Exception:
-                noaa_status = "NOAA CDO token configured (station lookup fallback active)."
-
-    # Filter AppEEARS catalog for relevant Earth observation products
     if _APPEEARS_CACHE:
         keywords = ("MOD13", "MOD11", "MOD16", "SPL3", "GPM", "SRTM", "ECO")
         for prod in _APPEEARS_CACHE:
@@ -984,10 +965,10 @@ async def fetch_partner_intel(
     if not appeears_products:
         appeears_products = [
             {
-                "product_id": "MOD13A3.061",
+                "product_id": "MOD13C2.061",
                 "platform": "Terra MODIS",
-                "description": "Vegetation Indices Monthly L3 Global 1km SIN Grid (NDVI / EVI)",
-                "resolution": "1000m",
+                "description": "Vegetation Indices Monthly CMG 0.05 deg (NDVI / EVI)",
+                "resolution": "0.05°",
             },
             {
                 "product_id": "SPL3SMP_E.006",
@@ -1000,16 +981,16 @@ async def fetch_partner_intel(
     if not cmr_collections:
         cmr_collections = [
             {
-                "short_name": "SWOT_L2_HR_RiverSP_2.0",
-                "title": "SWOT Level 2 River Single-Pass Vector Water Surface Elevation",
-                "data_center": "NASA PO.DAAC / CSA / CNES",
-                "summary": "High-resolution water surface elevation, slope, and discharge from the SWOT satellite.",
+                "short_name": "GPM_3IMERGM",
+                "title": "GPM IMERG Final Precipitation L3 1 month 0.1 degree x 0.1 degree V07",
+                "data_center": "NASA GES DISC",
+                "summary": "Multi-satellite merged monthly precipitation calibrated with global rain gauges.",
             },
             {
-                "short_name": "SEAWIFS_L3m_CHL",
-                "title": "SeaWiFS Level-3 Monthly Mapped Chlorophyll-a Concentration",
-                "data_center": "NASA OB.DAAC",
-                "summary": "Global and coastal river-plume ocean color chlorophyll time series (1997-2010).",
+                "short_name": "OMNO2d",
+                "title": "OMI/Aura NO2 Cloud-Screened Total and Tropospheric Column L3 0.25 degree",
+                "data_center": "NASA GES DISC",
+                "summary": "Satellite tropospheric nitrogen dioxide column abundance.",
             },
         ]
 
@@ -1017,8 +998,6 @@ async def fetch_partner_intel(
         "coordinates": {"lat": lat, "lon": lon, "bounding_box": box},
         "cmr_collections": cmr_collections[:6],
         "appeears_products": appeears_products[:5],
-        "csa_geomet_stations": csa_stations,
-        "noaa_cdo_status": noaa_status,
         "deep_links": build_partner_deep_links(lat, lon, parameter, start_year, end_year),
     }
 
@@ -1053,48 +1032,7 @@ def parse_external_timeseries(
 
     dataset_tag = "synthetic" if is_synthetic else "imported"
 
-    # Check if KNMI Climate Explorer 13-column format (YYYY val1 val2 ... val12)
-    knmi_records: dict[str, float] = {}
-    knmi_rows_matched = 0
-    for ln in lines:
-        if ln.startswith("#") or ln.startswith("%"):
-            if "KNMI" in ln.upper():
-                detected_source = "KNMI Climate Explorer"
-            continue
-        parts = ln.split()
-        if len(parts) == 13 and re.match(r"^(18|19|20)\d{2}$", parts[0]):
-            try:
-                yr = int(parts[0])
-                month_vals = [float(x) for x in parts[1:]]
-                knmi_rows_matched += 1
-                for m_idx, mv in enumerate(month_vals, start=1):
-                    if math.isfinite(mv) and mv > -990.0 and abs(mv - 3e33) > 1e20:
-                        knmi_records[f"{yr:04d}-{m_idx:02d}"] = mv
-            except ValueError:
-                pass
-
-    if knmi_rows_matched >= 2 and len(knmi_records) >= 24:
-        sorted_ts = sorted(knmi_records.keys())
-        return (
-            sorted_ts,
-            [round(knmi_records[k], 4) for k in sorted_ts],
-            {
-                "parameter_code": "KNMI_SERIES",
-                "parameter_name": (
-                    "Synthetic Demo Series (KNMI Format)" if is_synthetic else "KNMI Climate Explorer Series"
-                ),
-                "unit": detected_unit,
-                "mission_source": (
-                    "Synthetic Demo Waveform (KNMI 13-column format)"
-                    if is_synthetic
-                    else "KNMI Climate Explorer (Manual Table Import)"
-                ),
-                "is_synthetic": "true" if is_synthetic else "false",
-                "dataset_tag": dataset_tag,
-            },
-        )
-
-    # Otherwise parse Giovanni / GES DISC Hydrology / AppEEARS / NOAA CDO CSV or whitespace lines
+    # Parse NASA Giovanni / GES DISC Hydrology / AppEEARS CSV or whitespace lines
     monthly_buckets: dict[str, list[float]] = {}
     date_pattern = re.compile(r"^((?:18|19|20)\d{2})[-/]?([01]\d)(?:[-/]\d{1,2})?")
 

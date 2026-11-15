@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Download,
   FileText,
   Info,
   Minus,
@@ -106,7 +107,88 @@ export default function StatsDashboard({
     detective_brief: brief,
     primary_provenance: prov,
     data_status,
+    primary_series: pSeries,
+    source_badge,
+    region_coverage,
+    quality_flags,
   } = investigation.response;
+
+  const [showScience, setShowScience] = useState<boolean>(false);
+  const [selectedSeason, setSelectedSeason] = useState<"Annual" | "DJF" | "MAM" | "JJAS" | "ON">("Annual");
+
+  const SEASON_MONTHS: Record<"Annual" | "DJF" | "MAM" | "JJAS" | "ON", number[]> = {
+    Annual: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    DJF: [12, 1, 2],
+    MAM: [3, 4, 5],
+    JJAS: [6, 7, 8, 9],
+    ON: [10, 11],
+  };
+
+  const seasonalMetrics = (() => {
+    const allowed = new Set(SEASON_MONTHS[selectedSeason]);
+    const pts: number[] = [];
+    pSeries.timestamps.forEach((ts, idx) => {
+      const m = Number(ts.slice(5, 7));
+      const v = pSeries.raw_values[idx];
+      if (allowed.has(m) && v !== null && !Number.isNaN(v)) {
+        pts.push(v);
+      }
+    });
+    if (pts.length === 0) return null;
+    const mean = pts.reduce((a, b) => a + b, 0) / pts.length;
+    const min = Math.min(...pts);
+    const max = Math.max(...pts);
+    return { count: pts.length, mean, min, max };
+  })();
+
+  const handleDownloadCsv = () => {
+    const header = [
+      "timestamp",
+      "raw_value",
+      "seasonal_cycle",
+      "deseasonalized_anomaly",
+      "trend_line",
+      "ci_lower",
+      "ci_upper",
+    ];
+    const rows = pSeries.timestamps.map((ts, i) => [
+      ts,
+      pSeries.raw_values[i] ?? "",
+      pSeries.seasonal_cycle[i] ?? "",
+      pSeries.deseasonalized_anomalies[i] ?? "",
+      pSeries.trend_line[i] ?? "",
+      pSeries.ci_lower[i] ?? "",
+      pSeries.ci_upper[i] ?? "",
+    ]);
+    const csvContent = [
+      `# TerraShift Export | Region: ${pointA.name} | Variable: ${metadata.parameter_code} (${metadata.unit})`,
+      `# Sens Slope: ${ps.sens_slope_per_year}/yr | MK p-value: ${ps.p_value} | Significant: ${ps.is_significant}`,
+      header.join(","),
+      ...rows.map((r) => r.join(",")),
+    ].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `terrashift-${pointA.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${metadata.parameter_code}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const sigBadge = ps.is_significant
+    ? {
+        cls: "border-emerald-500/40 bg-emerald-500/15 text-emerald-200",
+        text: "Statistically significant (p < 0.05)",
+      }
+    : ps.p_value < 0.1
+      ? {
+          cls: "border-amber-500/40 bg-amber-500/15 text-amber-200",
+          text: `Borderline (p = ${fmtP(ps.p_value)}, 0.05 ≤ p < 0.10)`,
+        }
+      : {
+          cls: "border-slate-600 bg-slate-800/80 text-slate-300",
+          text: `Too noisy / not enough data yet — about ${ps.years_to_significance} more years needed`,
+        };
 
   const isSig = ps.is_significant;
   const isPositive = ps.sens_slope_per_year >= 0;
@@ -159,13 +241,40 @@ export default function StatsDashboard({
                 <VerdictIcon className="h-3.5 w-3.5" />
                 {verdict.label}
               </span>
-              <span className="rounded-full border border-slate-700 bg-slate-900/80 px-2.5 py-0.5 text-[11px] font-medium text-slate-300">
+              <span className="rounded-full border border-slate-700 bg-slate-900/80 px-2.5 py-0.5 text-xs font-medium text-slate-300">
                 {pointA.name} · {metadata.parameter_name} ({metadata.unit})
               </span>
-              <span className="rounded-full border border-slate-700 bg-slate-900/80 px-2.5 py-0.5 font-mono text-[11px] text-slate-300">
+              {source_badge && (
+                <span className="rounded-full border border-cyan-500/40 bg-cyan-950/50 px-2.5 py-0.5 text-xs font-semibold text-cyan-200">
+                  {source_badge}
+                </span>
+              )}
+              <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${sigBadge.cls}`}>
+                {sigBadge.text}
+              </span>
+              <span className="rounded-full border border-slate-700 bg-slate-900/80 px-2.5 py-0.5 font-mono text-xs text-slate-300">
                 n = {ps.observation_months} months ({ps.observation_years} yrs)
               </span>
             </div>
+
+            {region_coverage && (
+              <p className="text-xs text-slate-300">
+                Region averaging: <strong>{region_coverage.grid_cells_used}</strong> grid cell(s) ·{" "}
+                <strong>{region_coverage.area_covered_pct.toFixed(1)}%</strong> area covered ({region_coverage.weighting})
+              </p>
+            )}
+            {quality_flags && quality_flags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {quality_flags.map((flag, idx) => (
+                  <span
+                    key={idx}
+                    className="rounded-lg border border-amber-500/40 bg-amber-950/40 px-2.5 py-1 text-xs text-amber-200"
+                  >
+                    {flag}
+                  </span>
+                ))}
+              </div>
+            )}
 
             <h2 className="text-xl font-extrabold text-white sm:text-2xl">{brief.verdict_headline}</h2>
             <p className="max-w-3xl text-sm leading-relaxed text-slate-200">{verdict.summary}</p>
@@ -182,6 +291,14 @@ export default function StatsDashboard({
             </button>
             <button
               type="button"
+              onClick={handleDownloadCsv}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2 text-xs font-semibold text-slate-200 transition hover:border-cyan-400"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Export CSV
+            </button>
+            <button
+              type="button"
               onClick={onOpenDossier}
               className="inline-flex items-center gap-1.5 rounded-xl bg-slate-100 px-3.5 py-2 text-xs font-bold text-slate-950 transition hover:bg-cyan-200"
             >
@@ -191,49 +308,92 @@ export default function StatsDashboard({
           </div>
         </div>
 
-        {/* At-a-glance KPI Strip */}
-        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {/* Main-flow Indian Seasonal Breakdown + Show the Science Toggle */}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800/80 pt-4">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-xs font-semibold text-slate-400">Season:</span>
+            {(["Annual", "DJF", "MAM", "JJAS", "ON"] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setSelectedSeason(s)}
+                className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                  selectedSeason === s
+                    ? "bg-cyan-500 text-slate-950"
+                    : "border border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
+                }`}
+              >
+                {s}
+              </button>
+            ))}
+            {seasonalMetrics && (
+              <span className="ml-2 text-xs text-slate-300">
+                Mean: <strong className="font-mono text-white">{seasonalMetrics.mean.toFixed(2)} {metadata.unit}</strong>{" "}
+                ({seasonalMetrics.count} mo)
+              </span>
+            )}
+            {ps.seasonal_mann_kendall && (
+              <span className="ml-2 rounded-full border border-indigo-500/40 bg-indigo-950/40 px-2.5 py-0.5 text-xs text-indigo-200">
+                Seasonal MK (Hirsch 1982): p = {fmtP(ps.seasonal_mann_kendall.p_value)}
+              </span>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowScience((prev) => !prev)}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-500/40 bg-cyan-950/40 px-3 py-1.5 text-xs font-bold text-cyan-200 transition hover:bg-cyan-900/50"
+          >
+            {showScience ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            {showScience ? "Hide the science" : "Show the science"}
+          </button>
+        </div>
+
+        {/* At-a-glance KPI Strip (shown when Show the science is toggled on) */}
+        {showScience && (
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
-            <p className="text-[11px] text-slate-400">Sen&apos;s Slope / Decade</p>
+            <p className="text-xs text-slate-400">Sen&apos;s Slope / Decade</p>
             <p className="mt-1 font-mono text-base font-bold text-cyan-300">
               {ps.sens_slope_per_decade >= 0 ? "+" : ""}
               {ps.sens_slope_per_decade}
             </p>
-            <p className="text-[10px] text-slate-500">{metadata.unit}/decade</p>
+            <p className="text-xs text-slate-500">{metadata.unit}/decade</p>
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
-            <p className="text-[11px] text-slate-400">OLS Slope / Decade</p>
+            <p className="text-xs text-slate-400">OLS Slope / Decade</p>
             <p className="mt-1 font-mono text-base font-bold text-slate-100">
               {olsDecade >= 0 ? "+" : ""}
               {olsDecade}
             </p>
-            <p className="text-[10px] text-slate-500">{metadata.unit}/decade</p>
+            <p className="text-xs text-slate-500">{metadata.unit}/decade</p>
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
-            <p className="text-[11px] text-slate-400">Mann-Kendall p</p>
+            <p className="text-xs text-slate-400">Mann-Kendall p</p>
             <p className={`mt-1 font-mono text-base font-bold ${isSig ? "text-emerald-400" : "text-amber-300"}`}>
               {fmtP(ps.p_value)}
             </p>
-            <p className="text-[10px] text-slate-500">{isSig ? "p < 0.05 (Significant)" : "p >= 0.05 (Not Sig.)"}</p>
+            <p className="text-xs text-slate-500">{isSig ? "p < 0.05 (Significant)" : "p >= 0.05 (Not Sig.)"}</p>
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
-            <p className="text-[11px] text-slate-400">Student&apos;s t-test p</p>
+            <p className="text-xs text-slate-400">Student&apos;s t-test p</p>
             <p className="mt-1 font-mono text-base font-bold text-slate-100">{fmtP(ps.t_test_p_value)}</p>
-            <p className="text-[10px] text-slate-500">df = {df}</p>
+            <p className="text-xs text-slate-500">df = {df}</p>
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
-            <p className="text-[11px] text-slate-400">95% Slope CI</p>
+            <p className="text-xs text-slate-400">95% Slope CI</p>
             <p className="mt-1 font-mono text-xs font-bold text-slate-100">
               [{ps.sens_slope_ci_lower ?? "—"}, {ps.sens_slope_ci_upper ?? "—"}]
             </p>
-            <p className="text-[10px] text-slate-500">{metadata.unit}/year</p>
+            <p className="text-xs text-slate-500">{metadata.unit}/year</p>
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
-            <p className="text-[11px] text-slate-400">Seasonality Removed</p>
+            <p className="text-xs text-slate-400">Seasonality Removed</p>
             <p className="mt-1 font-mono text-base font-bold text-emerald-300">{ps.variance_reduction_pct}%</p>
-            <p className="text-[10px] text-slate-500">via STL (period=12)</p>
+            <p className="text-xs text-slate-400">via STL (period=12)</p>
           </div>
         </div>
+        )}
       </section>
 
       {/* Autocorrelation Advisory Banner (if serial correlation is detected) */}
@@ -261,13 +421,14 @@ export default function StatsDashboard({
         </div>
       )}
 
-      {/* 5 Core Statistical Method Cards */}
+      {/* 5 Core Statistical Method Cards (expanded with Show the science) */}
+      {showScience && (
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* A. Linear Regression & Rate of Change */}
         <article className="rounded-2xl border border-slate-800 bg-slate-900/75 p-5 shadow-lg">
           <div className="flex items-center justify-between">
             <h3 className="text-base font-bold text-white">A. Linear Regression &amp; Rate of Change</h3>
-            <span className="rounded-full bg-cyan-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-cyan-300">
+            <span className="rounded-full bg-cyan-500/15 px-2.5 py-0.5 text-xs font-semibold text-cyan-300">
               Parametric OLS
             </span>
           </div>
@@ -324,7 +485,7 @@ export default function StatsDashboard({
           <div className="flex items-center justify-between">
             <h3 className="text-base font-bold text-white">B. Student&apos;s t-test for Trend</h3>
             <span
-              className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+              className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                 ps.t_test_p_value < 0.05
                   ? "bg-emerald-500/15 text-emerald-300"
                   : "bg-amber-500/15 text-amber-300"
@@ -378,7 +539,7 @@ export default function StatsDashboard({
         <article className="rounded-2xl border border-slate-800 bg-slate-900/75 p-5 shadow-lg">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-base font-bold text-white">C. Mann-Kendall Trend Test</h3>
-            <div className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-950 p-0.5 text-[11px]">
+            <div className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-950 p-0.5 text-xs">
               <button
                 type="button"
                 onClick={() => onToggleMkVariant("standard")}
@@ -444,7 +605,7 @@ export default function StatsDashboard({
         <article className="rounded-2xl border border-slate-800 bg-slate-900/75 p-5 shadow-lg">
           <div className="flex items-center justify-between">
             <h3 className="text-base font-bold text-white">D. Sen&apos;s Slope Estimator</h3>
-            <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-300">
+            <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-emerald-300">
               Robust Non-Parametric
             </span>
           </div>
@@ -456,7 +617,7 @@ export default function StatsDashboard({
                 {ps.sens_slope_per_year >= 0 ? "+" : ""}
                 {ps.sens_slope_per_year} {metadata.unit}/yr
               </p>
-              <p className="font-mono text-[11px] text-slate-400">
+              <p className="font-mono text-xs text-slate-400">
                 ({ps.sens_slope_per_decade >= 0 ? "+" : ""}
                 {ps.sens_slope_per_decade} {metadata.unit}/dec)
               </p>
@@ -467,7 +628,7 @@ export default function StatsDashboard({
                 {ps.ols_slope_per_year >= 0 ? "+" : ""}
                 {ps.ols_slope_per_year} {metadata.unit}/yr
               </p>
-              <p className="text-[11px] text-slate-400">
+              <p className="text-xs text-slate-400">
                 Difference:{" "}
                 <span className="font-mono">
                   {Math.abs(ps.sens_slope_per_year - ps.ols_slope_per_year).toFixed(4)}
@@ -496,7 +657,7 @@ export default function StatsDashboard({
         <article className="rounded-2xl border border-slate-800 bg-slate-900/75 p-5 shadow-lg lg:col-span-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-base font-bold text-white">E. 95% Confidence Intervals &amp; Uncertainty</h3>
-            <span className="rounded-full bg-indigo-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-300">
+            <span className="rounded-full bg-indigo-500/15 px-2.5 py-0.5 text-xs font-semibold text-indigo-300">
               95% Confidence Level (&alpha; = 0.05)
             </span>
           </div>
@@ -507,7 +668,7 @@ export default function StatsDashboard({
               <p className="mt-1 font-mono text-base font-bold text-cyan-300">
                 [{ps.sens_slope_ci_lower ?? "—"}, {ps.sens_slope_ci_upper ?? "—"}] {metadata.unit}/yr
               </p>
-              <p className="mt-1 text-[11px] text-slate-400">
+              <p className="mt-1 text-xs text-slate-400">
                 {ps.sens_slope_ci_lower !== undefined &&
                 ps.sens_slope_ci_upper !== undefined &&
                 ((ps.sens_slope_ci_lower > 0 && ps.sens_slope_ci_upper > 0) ||
@@ -520,7 +681,7 @@ export default function StatsDashboard({
             <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3.5 text-xs">
               <p className="text-slate-400">Chart Uncertainty Band</p>
               <p className="mt-1 font-semibold text-white">95% OLS Mean-Response Band</p>
-              <p className="mt-1 text-[11px] text-slate-400">
+              <p className="mt-1 text-xs text-slate-400">
                 The shaded ribbon around the regression line in Trend Analysis visualizes how precisely the mean trend is
                 pinned down at each point in time.
               </p>
@@ -535,7 +696,7 @@ export default function StatsDashboard({
                     ? "Near-zero slope"
                     : `~${ps.estimated_additional_observation_years ?? ps.years_to_significance} yrs`}
               </p>
-              <p className="mt-1 text-[11px] text-slate-400">
+              <p className="mt-1 text-xs text-slate-400">
                 Illustrative statistical power estimate assuming stationary slope and noise — not a future forecast.
               </p>
             </div>
@@ -551,6 +712,7 @@ export default function StatsDashboard({
           />
         </article>
       </section>
+      )}
 
       {/* Scientific Reliability, Data Diagnostics & AI Grounding */}
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-12">
@@ -566,30 +728,30 @@ export default function StatsDashboard({
               <dd className="mt-0.5 font-mono font-bold text-white">
                 {ps.missing_months ?? 0} months ({(ps.missing_pct ?? 0).toFixed(1)}%)
               </dd>
-              <dd className="mt-0.5 text-[10px] text-slate-500">Gaps &gt; 3 months are rejected rather than fabricated.</dd>
+              <dd className="mt-0.5 text-xs text-slate-500">Gaps &gt; 3 months are rejected rather than fabricated.</dd>
             </div>
             <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
               <dt className="text-slate-400">Outliers Detected (|z| &gt; 3)</dt>
               <dd className="mt-0.5 font-mono font-bold text-white">{outlierCount} points</dd>
-              <dd className="mt-0.5 text-[10px] text-slate-500">Flagged for transparency; never automatically deleted.</dd>
+              <dd className="mt-0.5 text-xs text-slate-500">Flagged for transparency; never automatically deleted.</dd>
             </div>
             <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
               <dt className="text-slate-400">Lag-1 Autocorrelation</dt>
               <dd className="mt-0.5 font-mono font-bold text-white">
                 r = {acf1.toFixed(3)} ({acfSig ? "Present" : "Low"})
               </dd>
-              <dd className="mt-0.5 text-[10px] text-slate-500">Checked on detrended anomalies.</dd>
+              <dd className="mt-0.5 text-xs text-slate-500">Checked on detrended anomalies.</dd>
             </div>
             <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
               <dt className="text-slate-400">Data Source &amp; Status</dt>
               <dd className="mt-0.5 font-semibold text-cyan-300">
                 {(prov?.source_name ?? metadata.mission_source).split("(")[0].trim()} ({data_status})
               </dd>
-              <dd className="mt-0.5 text-[10px] text-slate-500">{prov?.data_type ?? metadata.data_type ?? "Reanalysis"}</dd>
+              <dd className="mt-0.5 text-xs text-slate-500">{prov?.data_type ?? metadata.data_type ?? "Reanalysis"}</dd>
             </div>
           </dl>
 
-          <ul className="mt-4 space-y-1.5 text-[11px] leading-relaxed text-slate-400">
+          <ul className="mt-4 space-y-1.5 text-xs leading-relaxed text-slate-400">
             <li className="flex items-start gap-1.5">
               <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-400" />
               <span>
@@ -615,7 +777,7 @@ export default function StatsDashboard({
               <Sparkles className="h-5 w-5 text-cyan-400" />
               <h3 className="text-base font-bold text-white">Plain-Language Physical Context</h3>
             </div>
-            <span className="rounded-full border border-slate-700 bg-slate-950 px-2.5 py-0.5 text-[10px] font-semibold text-slate-300">
+            <span className="rounded-full border border-slate-700 bg-slate-950 px-2.5 py-0.5 text-xs font-semibold text-slate-300">
               {brief.ai_enhanced ? "Gemini-Enhanced · Stats-Grounded" : "Deterministic Brief"}
             </span>
           </div>
@@ -631,7 +793,7 @@ export default function StatsDashboard({
                   <Activity className="h-3.5 w-3.5" />
                   Regional Comparison: {pointA.name} vs. {pointB.name}
                 </p>
-                <p className="mt-1 text-[11px] text-slate-300">
+                <p className="mt-1 text-xs text-slate-300">
                   {pointB.name} slope:{" "}
                   <span className="font-mono font-bold">
                     {cs.sens_slope_per_year >= 0 ? "+" : ""}
@@ -645,7 +807,7 @@ export default function StatsDashboard({
             )}
 
             {brief.limitations_note && (
-              <p className="rounded-lg border border-slate-800 bg-slate-950/60 p-2.5 text-[11px] text-slate-400">
+              <p className="rounded-lg border border-slate-800 bg-slate-950/60 p-2.5 text-xs text-slate-400">
                 <strong className="text-slate-200">Limitations:</strong> {brief.limitations_note}
               </p>
             )}

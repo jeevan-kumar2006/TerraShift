@@ -29,6 +29,7 @@ interface HomePageProps {
   activeInvestigation: InvestigateResponse | null;
   onNavigate: (section: NavSection) => void;
   onSelectCaseAndExplore: (caseId: string, targetSection: NavSection) => void;
+  onStartDemo?: () => void;
 }
 
 const signalCards = [
@@ -78,6 +79,7 @@ export default function HomePage({
   activeInvestigation,
   onNavigate,
   onSelectCaseAndExplore,
+  onStartDemo,
 }: HomePageProps) {
   const featuredCases = cases.slice(0, 4);
   const activeStats = activeInvestigation?.response.primary_stats;
@@ -117,6 +119,12 @@ export default function HomePage({
               Begin an investigation
               <ArrowUpRight className="h-4 w-4" />
             </button>
+            {onStartDemo && (
+              <button type="button" className="button button-quiet" onClick={onStartDemo}>
+                Start demo
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            )}
             <button type="button" className="button button-quiet" onClick={() => onNavigate("about")}>
               How the science works
               <ChevronRight className="h-4 w-4" />

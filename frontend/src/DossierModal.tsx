@@ -176,11 +176,11 @@ export default function DossierModal({
           <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
             <span>NASA Earth System Trend Detective Field Dossier</span>
             {brief.ai_enhanced ? (
-              <span className="rounded-full bg-indigo-100 px-2.5 py-0.5 text-[11px] font-bold text-indigo-800">
+              <span className="rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-bold text-indigo-800">
                 Gemini AI Grounded
               </span>
             ) : (
-              <span className="rounded-full bg-cyan-100 px-2.5 py-0.5 text-[11px] font-bold text-cyan-900">
+              <span className="rounded-full bg-cyan-100 px-2.5 py-0.5 text-xs font-bold text-cyan-900">
                 NASA Physics Synthesis
               </span>
             )}
@@ -236,7 +236,7 @@ export default function DossierModal({
           {/* Official Header */}
           <div className="print-avoid-break flex flex-wrap items-start justify-between gap-3 border-b-2 border-slate-900 pb-3">
             <div>
-              <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-cyan-900">
+              <p className="font-mono text-xs font-bold uppercase tracking-widest text-cyan-900">
                 TERRA-SHIFT // NASA EARTH SYSTEM TREND DETECTIVE // SCIENTIFIC DOSSIER
               </p>
               <h2 id="dossier-heading" className="mt-0.5 text-xl font-extrabold text-slate-950">
@@ -248,7 +248,7 @@ export default function DossierModal({
                 {investigation.response.primary_provenance?.source_name ?? metadata.mission_source} · Biome: {brief.biome_zone}
               </p>
             </div>
-            <div className="text-right font-mono text-[11px] text-slate-800">
+            <div className="text-right font-mono text-xs text-slate-800">
               <p>
                 Window: <strong>{windowRange[0]}–{windowRange[1]}</strong> ({primary_stats.observation_months} months · {primary_stats.observation_years} yrs)
               </p>
@@ -266,10 +266,10 @@ export default function DossierModal({
             }`}
           >
             <div className="flex items-center justify-between">
-              <p className="text-[11px] font-bold uppercase tracking-wider">
+              <p className="text-xs font-bold uppercase tracking-wider">
                 Statistical Verdict (&alpha; = 0.05 on Deseasonalized STL Anomalies)
               </p>
-              <span className="font-mono text-[11px] font-bold">
+              <span className="font-mono text-xs font-bold">
                 MK p = {fmtP(primary_stats.p_value)} ({primary_stats.is_significant ? "Significant" : "Not Significant"})
               </span>
             </div>
@@ -282,16 +282,16 @@ export default function DossierModal({
             <div className="rounded-lg border border-slate-300 p-3 text-xs">
               <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
                 <p className="font-bold text-slate-950">Primary Investigation Region (A)</p>
-                <span className="font-mono text-[10px] text-cyan-900">
+                <span className="font-mono text-xs text-cyan-900">
                   {pointA.lat.toFixed(2)}°, {pointA.lon.toFixed(2)}°
                 </span>
               </div>
               <p className="mt-1 font-semibold text-slate-800">{pointA.name}</p>
-              <p className="font-mono text-[10px] text-slate-600">
+              <p className="font-mono text-xs text-slate-600">
                 Grid Cell: [{primary_bounding_box.south.toFixed(2)}°..{primary_bounding_box.north.toFixed(2)}°N,{" "}
                 {primary_bounding_box.west.toFixed(2)}°..{primary_bounding_box.east.toFixed(2)}°E]
               </p>
-              <div className="mt-2 grid grid-cols-2 gap-y-1 border-t border-slate-200 pt-2 font-mono text-[11px]">
+              <div className="mt-2 grid grid-cols-2 gap-y-1 border-t border-slate-200 pt-2 font-mono text-xs">
                 <span className="text-slate-600">Sen&apos;s Slope/yr:</span>
                 <strong>
                   {primary_stats.sens_slope_per_year >= 0 ? "+" : ""}
@@ -322,7 +322,7 @@ export default function DossierModal({
               <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
                 <p className="font-bold text-slate-950">Regional Comparison (B)</p>
                 {pointB && (
-                  <span className="font-mono text-[10px] text-indigo-900">
+                  <span className="font-mono text-xs text-indigo-900">
                     {pointB.lat.toFixed(2)}°, {pointB.lon.toFixed(2)}°
                   </span>
                 )}
@@ -331,12 +331,12 @@ export default function DossierModal({
                 <>
                   <p className="mt-1 font-semibold text-slate-800">{pointB.name}</p>
                   {comparison_bounding_box && (
-                    <p className="font-mono text-[10px] text-slate-600">
+                    <p className="font-mono text-xs text-slate-600">
                       Grid Cell: [{comparison_bounding_box.south.toFixed(2)}°..{comparison_bounding_box.north.toFixed(2)}°N,{" "}
                       {comparison_bounding_box.west.toFixed(2)}°..{comparison_bounding_box.east.toFixed(2)}°E]
                     </p>
                   )}
-                  <div className="mt-2 grid grid-cols-2 gap-y-1 border-t border-slate-200 pt-2 font-mono text-[11px]">
+                  <div className="mt-2 grid grid-cols-2 gap-y-1 border-t border-slate-200 pt-2 font-mono text-xs">
                     <span className="text-slate-600">Region B Slope/yr:</span>
                     <strong>
                       {comparison_stats.sens_slope_per_year >= 0 ? "+" : ""}
@@ -365,7 +365,7 @@ export default function DossierModal({
               ) : (
                 <div className="mt-2 space-y-1.5 text-slate-700">
                   <p className="italic">Single-region mode (no comparison point selected).</p>
-                  <div className="grid grid-cols-2 gap-y-1 border-t border-slate-200 pt-2 font-mono text-[11px] text-slate-900">
+                  <div className="grid grid-cols-2 gap-y-1 border-t border-slate-200 pt-2 font-mono text-xs text-slate-900">
                     <span className="text-slate-600">STL Var Stripped:</span>
                     <strong>{primary_stats.variance_reduction_pct}%</strong>
                     <span className="text-slate-600">Seasonal Amplitude:</span>
@@ -387,10 +387,10 @@ export default function DossierModal({
           {/* Static Deseasonalized Chart Snapshot */}
           <div className="print-avoid-break rounded-lg border border-slate-300 p-3">
             <div className="flex items-center justify-between border-b border-slate-200 pb-1">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-800">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-800">
                 Deseasonalized Anomaly Series &amp; 95% Confidence Band ({metadata.unit})
               </p>
-              <span className="font-mono text-[10px] text-slate-600">
+              <span className="font-mono text-xs text-slate-600">
                 {windowRange[0]}–{windowRange[1]} ({primary_stats.observation_months} mos)
               </span>
             </div>
@@ -497,12 +497,12 @@ export default function DossierModal({
                 </p>
               )}
             </div>
-            <div className="border-t border-slate-200 pt-2 text-[11px] text-slate-700">
+            <div className="border-t border-slate-200 pt-2 text-xs text-slate-700">
               <p>
                 <strong>Primary Literature &amp; Mission Reference:</strong> {brief.reference} ·{" "}
                 <em>{metadata.plain_definition}</em>
               </p>
-              <p className="mt-1 text-[10px] text-slate-500">
+              <p className="mt-1 text-xs text-slate-500">
                 <strong>Multi-Agency &amp; Statistical Methodology Sources:</strong> NASA Giovanni · GES DISC
                 Hydrology Time Series · NASA AppEEARS · NOAA NCEI CDO · NASA NTRS 20090042747 · KNMI Climate Explorer ·
                 CSA SWOT &amp; RCM · Sen (1968) &amp; Mann-Kendall Significance Testing (&alpha; = 0.05).

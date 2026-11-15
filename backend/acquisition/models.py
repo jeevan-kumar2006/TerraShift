@@ -50,8 +50,6 @@ class AuthStatusReport(BaseModel):
     earthdata_method: str
     netrc_present: bool
     earthaccess_available: bool
-    copernicus_configured: bool
-    copernicus_method: str
     appeears_ready: bool
     missing_credentials: list[str] = Field(default_factory=list)
     setup_instructions: list[str] = Field(default_factory=list)

@@ -16,15 +16,41 @@ import {
   Crosshair,
   Globe,
   HelpCircle,
-  KeyRound,
   Layers,
   MapPin,
   Radio,
   Trash2,
 } from "lucide-react";
-import type { BoundingBox, GeoPoint, SeriesStats, TeleconnectionSummary } from "./types";
+import { API_BASE_URL, FREE_MAP_TILES } from "./config";
+import type {
+  BoundingBox,
+  GeoPoint,
+  SeriesStats,
+  TeleconnectionSummary,
+  TrendMapRegion,
+  TrendMapResponse,
+} from "./types";
 
 type MapStyleMode = "dark" | "satellite" | "terrain";
+
+function getDivergingSlopeColor(slope: number, maxAbs: number): string {
+  const safeMax = Math.max(maxAbs, 1e-6);
+  const ratio = Math.max(-1, Math.min(1, slope / safeMax));
+  if (ratio >= 0) {
+    const t = Math.min(1, ratio);
+    // Warm amber -> crimson
+    const r = Math.round(251 - t * 26);
+    const g = Math.round(191 - t * 135);
+    const b = Math.round(36 + t * 30);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+  const t = Math.min(1, -ratio);
+  // Teal -> deep cyan/blue
+  const r = Math.round(45 - t * 31);
+  const g = Math.round(212 - t * 47);
+  const b = Math.round(191 + t * 42);
+  return `rgb(${r}, ${g}, ${b})`;
+}
 
 interface SplitMapProps {
   parameter: string;
@@ -41,11 +67,9 @@ interface SplitMapProps {
   primaryBBox: BoundingBox | null;
   comparisonBBox: BoundingBox | null;
   fitVersion: number;
+  trendMap?: TrendMapResponse | null;
+  onSelectRegion?: (region: TrendMapRegion) => void;
 }
-
-const ENV_MAPBOX_TOKEN =
-  ((import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_MAPBOX_TOKEN || "").trim();
-const STORAGE_KEY = "terrashift_mapbox_token";
 
 function getSlopeColor(
   parameter: string,
@@ -126,39 +150,19 @@ function createBadgeIcon(label: "A" | "B", colorHex: string, isActive: boolean):
   });
 }
 
-async function reverseGeocodeMapbox(lat: number, lon: number, token: string): Promise<string | undefined> {
-  if (!token) return undefined;
-  try {
-    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=place,region,country&limit=1&access_token=${encodeURIComponent(token)}`;
-    const resp = await fetch(url);
-    if (!resp.ok) return undefined;
-    const data = await resp.json();
-    const feat = data?.features?.[0];
-    if (feat?.place_name) {
-      return String(feat.place_name);
-    }
-  } catch {
-    // ignore geocoding network errors and fall back to coordinates
-  }
-  return undefined;
-}
-
 function MapClickHandler({
   activeTarget,
-  mapboxToken,
   onSelectPoint,
 }: {
   activeTarget: "A" | "B";
-  mapboxToken: string;
   onSelectPoint: (target: "A" | "B", lat: number, lon: number, resolvedName?: string) => void;
 }) {
   useMapEvents({
-    async click(e) {
+    click(e) {
       const wrapped = e.latlng.wrap();
       const lat = Number(Math.min(37.5, Math.max(6.0, wrapped.lat)).toFixed(3));
       const lon = Number(Math.min(97.5, Math.max(68.0, wrapped.lng)).toFixed(3));
-      const resolvedName = await reverseGeocodeMapbox(lat, lon, mapboxToken);
-      onSelectPoint(activeTarget, lat, lon, resolvedName);
+      onSelectPoint(activeTarget, lat, lon);
     },
   });
   return null;
@@ -213,27 +217,16 @@ export default function SplitMap({
   primaryBBox,
   comparisonBBox,
   fitVersion,
+  trendMap,
+  onSelectRegion,
 }: SplitMapProps) {
   const [styleMode, setStyleMode] = useState<MapStyleMode>("dark");
-  const [mapboxToken, setMapboxToken] = useState<string>(() => {
-    if (ENV_MAPBOX_TOKEN && ENV_MAPBOX_TOKEN.startsWith("pk.")) return ENV_MAPBOX_TOKEN;
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY) || "";
-      return saved.startsWith("pk.") ? saved : "";
-    } catch {
-      return "";
-    }
-  });
-  const [showTokenEditor, setShowTokenEditor] = useState<boolean>(false);
-  const [tokenDraft, setTokenDraft] = useState<string>(mapboxToken);
-  const [mapboxError, setMapboxError] = useState<boolean>(false);
-  const [tokenValidationError, setTokenValidationError] = useState<string | null>(null);
   const [mobileLegendOpen, setMobileLegendOpen] = useState<boolean>(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [indiaGeoJson, setIndiaGeoJson] = useState<any>(null);
 
   useEffect(() => {
-    const apiBase = ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+    const apiBase = API_BASE_URL.replace(/\/$/, "");
     fetch(`${apiBase}/api/india/boundaries-geojson`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -244,86 +237,18 @@ export default function SplitMap({
       });
   }, []);
 
-  const useMapboxTiles = mapboxToken.trim().startsWith("pk.") && !mapboxError;
-
   const tileConfig = useMemo(() => {
-    if (useMapboxTiles) {
-      const styleId =
-        styleMode === "satellite"
-          ? "mapbox/satellite-streets-v12"
-          : styleMode === "terrain"
-            ? "mapbox/outdoors-v12"
-            : "mapbox/dark-v11";
-      return {
-        key: `mb-${styleId}-${mapboxToken.slice(-6)}`,
-        url: `https://api.mapbox.com/styles/v1/${styleId}/tiles/512/{z}/{x}/{y}@2x?access_token=${encodeURIComponent(
-          mapboxToken.trim()
-        )}`,
-        attribution:
-          '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> &copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        tileSize: 512,
-        zoomOffset: -1,
-        providerBadge: `Mapbox (${styleMode})`,
-      };
-    }
-
-    if (styleMode === "satellite") {
-      return {
-        key: "fallback-sat",
-        url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attribution: "Tiles &copy; Esri &mdash; Source: Esri, NASA, USGS",
-        tileSize: 256,
-        zoomOffset: 0,
-        providerBadge: "Satellite Imagery (Esri)",
-      };
-    }
-
-    if (styleMode === "terrain") {
-      return {
-        key: "fallback-terrain",
-        url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
-        attribution: "&copy; OpenTopoMap &copy; OpenStreetMap contributors",
-        tileSize: 256,
-        zoomOffset: 0,
-        providerBadge: "Hydrology / Topo",
-      };
-    }
-
+    const tile = FREE_MAP_TILES[styleMode];
     return {
-      key: "osm-dark",
-      url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      key: `free-${styleMode}`,
+      url: tile.url,
+      attribution: tile.attribution,
       tileSize: 256,
       zoomOffset: 0,
-      providerBadge: "Leaflet + OpenStreetMap (Dark)",
-      isOsmDark: true,
+      providerBadge: tile.providerBadge,
+      isOsmDark: styleMode === "dark",
     };
-  }, [mapboxToken, styleMode, useMapboxTiles]);
-
-  const handleSaveToken = () => {
-    const cleaned = tokenDraft.trim();
-    if (cleaned && !cleaned.startsWith("pk.")) {
-      setTokenValidationError(
-        cleaned.startsWith("sk.")
-          ? "Secret Mapbox tokens (sk.*) must never be used in the browser. Enter a public token starting with pk."
-          : "Invalid token format: Mapbox browser tokens must start with pk."
-      );
-      return;
-    }
-    setTokenValidationError(null);
-    setMapboxToken(cleaned);
-    setMapboxError(false);
-    try {
-      if (cleaned) {
-        localStorage.setItem(STORAGE_KEY, cleaned);
-      } else {
-        localStorage.removeItem(STORAGE_KEY);
-      }
-    } catch {
-      // ignore storage errors
-    }
-    setShowTokenEditor(false);
-  };
+  }, [styleMode]);
 
   const colorA = getSlopeColor(parameter, primaryStats?.sens_slope_per_year, primaryStats?.is_significant);
   const colorB = getSlopeColor(
@@ -376,7 +301,7 @@ export default function SplitMap({
           <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
             Dual-Region Teleconnection Map
           </span>
-          <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-950/40 px-2.5 py-0.5 text-[10px] font-medium text-cyan-300">
+          <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-950/40 px-2.5 py-0.5 text-xs font-medium text-cyan-300">
             <Globe className="h-3 w-3" />
             {tileConfig.providerBadge}
           </span>
@@ -384,7 +309,7 @@ export default function SplitMap({
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Map Layer Switcher */}
-          <div className="flex items-center rounded-lg border border-slate-800 bg-slate-950 p-0.5 text-[11px]">
+          <div className="flex items-center rounded-lg border border-slate-800 bg-slate-950 p-0.5 text-xs">
             <Layers className="mx-1.5 h-3 w-3 text-slate-400" />
             {(["dark", "satellite", "terrain"] as MapStyleMode[]).map((m) => (
               <button
@@ -401,23 +326,6 @@ export default function SplitMap({
               </button>
             ))}
           </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              setTokenDraft(mapboxToken);
-              setShowTokenEditor((s) => !s);
-            }}
-            title="Configure Mapbox token for high-resolution vector and satellite tiles"
-            className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-medium transition ${
-              useMapboxTiles
-                ? "border border-emerald-500/40 bg-emerald-950/40 text-emerald-300"
-                : "border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
-            }`}
-          >
-            <KeyRound className="h-3 w-3" />
-            {useMapboxTiles ? "Mapbox Active" : "Mapbox Key"}
-          </button>
 
           {/* Region A Selector Button */}
           <button
@@ -481,40 +389,6 @@ export default function SplitMap({
         </div>
       </div>
 
-      {/* Optional Mapbox API Token Drawer */}
-      {showTokenEditor && (
-        <div className="border-b border-slate-800 bg-slate-950 px-4 py-2.5 text-xs">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-slate-300">
-              Enter a Mapbox public token (<code className="text-cyan-300">pk.eyJ...</code>) or configure{" "}
-              <code className="text-cyan-300">VITE_MAPBOX_TOKEN</code> in your environment:
-            </span>
-            <div className="flex items-center gap-2">
-              <input
-                type="password"
-                value={tokenDraft}
-                onChange={(e) => {
-                  setTokenDraft(e.target.value);
-                  if (tokenValidationError) setTokenValidationError(null);
-                }}
-                placeholder="pk.eyJ1Ijoi..."
-                className="w-64 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-xs text-slate-100 outline-none focus:border-cyan-400"
-              />
-              <button
-                type="button"
-                onClick={handleSaveToken}
-                className="rounded-lg bg-cyan-500 px-3 py-1.5 font-bold text-slate-950 hover:bg-cyan-400"
-              >
-                Apply
-              </button>
-            </div>
-          </div>
-          {tokenValidationError && (
-            <p className="mt-1.5 text-[11px] font-medium text-rose-400">{tokenValidationError}</p>
-          )}
-        </div>
-      )}
-
       {/* Map Canvas with Leaflet */}
       <div
         className={`relative h-[340px] w-full sm:h-[400px] ${(tileConfig as { isOsmDark?: boolean }).isOsmDark ? "osm-dark-tiles" : ""}`}
@@ -537,16 +411,50 @@ export default function SplitMap({
             url={tileConfig.url}
             tileSize={tileConfig.tileSize}
             zoomOffset={tileConfig.zoomOffset}
-            eventHandlers={{
-              tileerror() {
-                if (useMapboxTiles) {
-                  setMapboxError(true);
-                }
-              },
-            }}
           />
 
-          {indiaGeoJson && (
+          {trendMap?.geojson && (
+            <LeafletGeoJSON
+              key={`trend-choro-${trendMap.cache_id}`}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              data={trendMap.geojson as any}
+              style={(feature) => {
+                const props = (feature?.properties || {}) as Record<string, unknown>;
+                const slope = typeof props.slope_per_year === "number" ? props.slope_per_year : 0;
+                const sigFdr = Boolean(props.significant_fdr);
+                const maxAbs = trendMap.legend_range?.symmetric_abs_p95 || 0.05;
+                return {
+                  color: sigFdr ? "#f8fafc" : "#64748b",
+                  weight: sigFdr ? 1.6 : 0.8,
+                  dashArray: sigFdr ? undefined : "3 3",
+                  opacity: 0.9,
+                  fillColor: getDivergingSlopeColor(slope, maxAbs),
+                  fillOpacity: sigFdr ? 0.78 : 0.28,
+                };
+              }}
+              onEachFeature={(feature, layer) => {
+                const props = (feature?.properties || {}) as Record<string, unknown>;
+                const regId = String(props.region_id || "");
+                const name = String(props.name || regId);
+                const slope = typeof props.slope_per_year === "number" ? props.slope_per_year : 0;
+                const pVal = typeof props.p_value === "number" ? props.p_value : 1;
+                const qVal = typeof props.q_value === "number" ? props.q_value : 1;
+                const sigFdr = Boolean(props.significant_fdr);
+                layer.bindTooltip(
+                  `<div style="font-size:12px"><strong>${name}</strong><br/>Slope: ${slope >= 0 ? "+" : ""}${slope.toFixed(4)} ${trendMap.unit}/yr<br/>p = ${pVal.toFixed(4)} | q(FDR) = ${qVal.toFixed(4)}<br/><em>${sigFdr ? "FDR significant (q < 0.05)" : "Not FDR significant"}</em></div>`,
+                  { sticky: true }
+                );
+                layer.on("click", () => {
+                  const found = trendMap.regions.find((r) => r.region_id === regId);
+                  if (found && onSelectRegion) {
+                    onSelectRegion(found);
+                  }
+                });
+              }}
+            />
+          )}
+
+          {!trendMap && indiaGeoJson && (
             <LeafletGeoJSON
               data={indiaGeoJson}
               style={{
@@ -559,11 +467,7 @@ export default function SplitMap({
             />
           )}
 
-          <MapClickHandler
-            activeTarget={activeTarget}
-            mapboxToken={useMapboxTiles ? mapboxToken : ""}
-            onSelectPoint={onSelectPoint}
-          />
+          <MapClickHandler activeTarget={activeTarget} onSelectPoint={onSelectPoint} />
           <ViewportController pointA={pointA} pointB={pointB} fitVersion={fitVersion} />
 
           {/* Grid Cell Bounding Boxes */}
@@ -608,16 +512,11 @@ export default function SplitMap({
               icon={iconA}
               draggable={true}
               eventHandlers={{
-                async dragend(e) {
+                dragend(e) {
                   const pos = e.target.getLatLng().wrap();
                   const lat = Number(pos.lat.toFixed(3));
                   const lon = Number(pos.lng.toFixed(3));
-                  const resolvedName = await reverseGeocodeMapbox(
-                    lat,
-                    lon,
-                    useMapboxTiles ? mapboxToken : ""
-                  );
-                  onSelectPoint("A", lat, lon, resolvedName);
+                  onSelectPoint("A", lat, lon);
                 },
               }}
             >
@@ -642,16 +541,11 @@ export default function SplitMap({
               icon={iconB}
               draggable={true}
               eventHandlers={{
-                async dragend(e) {
+                dragend(e) {
                   const pos = e.target.getLatLng().wrap();
                   const lat = Number(pos.lat.toFixed(3));
                   const lon = Number(pos.lng.toFixed(3));
-                  const resolvedName = await reverseGeocodeMapbox(
-                    lat,
-                    lon,
-                    useMapboxTiles ? mapboxToken : ""
-                  );
-                  onSelectPoint("B", lat, lon, resolvedName);
+                  onSelectPoint("B", lat, lon);
                 },
               }}
             >
@@ -682,9 +576,11 @@ export default function SplitMap({
         )}
 
         {/* Dynamic Desktop Legend */}
-        <div className="pointer-events-none absolute bottom-3 left-3 z-[400] hidden flex-col gap-1 rounded-xl border border-slate-700/80 bg-slate-950/90 p-2.5 text-[11px] text-slate-200 shadow-xl backdrop-blur-md sm:flex">
-          <p className="font-bold uppercase tracking-wider text-slate-400 text-[10px]">
-            Map Status Legend ({parameter.toUpperCase()})
+        <div className="pointer-events-none absolute bottom-3 left-3 z-[400] hidden flex-col gap-1 rounded-xl border border-slate-700/80 bg-slate-950/90 p-2.5 text-xs text-slate-200 shadow-xl backdrop-blur-md sm:flex">
+          <p className="font-bold uppercase tracking-wider text-slate-400 text-xs">
+            {trendMap
+              ? `Choropleth Slope (${trendMap.unit}/yr, ±${trendMap.legend_range.symmetric_abs_p95.toFixed(3)})`
+              : `Map Status Legend (${parameter.toUpperCase()})`}
           </p>
           <div className="flex flex-wrap items-center gap-3">
             {legendItems.map((item) => (
@@ -711,7 +607,7 @@ export default function SplitMap({
           </button>
           {mobileLegendOpen && (
             <div className="mt-1.5 rounded-xl border border-slate-700 bg-slate-950/95 p-2.5 text-xs text-slate-200 shadow-xl">
-              <p className="font-bold text-[10px] uppercase tracking-wider text-slate-400">
+              <p className="font-bold text-xs uppercase tracking-wider text-slate-400">
                 Status Legend ({parameter.toUpperCase()})
               </p>
               <div className="mt-1.5 space-y-1">
@@ -730,6 +626,54 @@ export default function SplitMap({
         </div>
       </div>
 
+      {/* Computed Opposite Trends Panel (when choropleth trendMap is loaded) */}
+      {trendMap && (
+        <div className="grid grid-cols-1 gap-2.5 border-t border-slate-800 bg-slate-950/90 px-4 py-3 text-xs sm:grid-cols-2">
+          <div className="rounded-xl border border-rose-500/30 bg-rose-950/20 p-3">
+            <p className="font-bold text-rose-300">Top Positive Trends (FDR-corrected)</p>
+            <div className="mt-1.5 space-y-1">
+              {(trendMap.opposite_trends?.top_positive || []).slice(0, 3).map((reg) => (
+                <button
+                  key={reg.region_id}
+                  type="button"
+                  onClick={() => onSelectRegion?.(reg)}
+                  className="flex w-full items-center justify-between rounded-lg px-2 py-1 text-left transition hover:bg-rose-900/30"
+                >
+                  <span className="font-medium text-slate-100">{reg.name}</span>
+                  <span className="font-mono text-rose-300">
+                    +{reg.slope_per_year.toFixed(4)} {trendMap.unit}/yr (q={reg.q_value.toFixed(3)})
+                  </span>
+                </button>
+              ))}
+              {(!trendMap.opposite_trends?.top_positive || trendMap.opposite_trends.top_positive.length === 0) && (
+                <p className="text-slate-400">No positive trends in this window.</p>
+              )}
+            </div>
+          </div>
+          <div className="rounded-xl border border-cyan-500/30 bg-cyan-950/20 p-3">
+            <p className="font-bold text-cyan-300">Top Negative Trends (FDR-corrected)</p>
+            <div className="mt-1.5 space-y-1">
+              {(trendMap.opposite_trends?.top_negative || []).slice(0, 3).map((reg) => (
+                <button
+                  key={reg.region_id}
+                  type="button"
+                  onClick={() => onSelectRegion?.(reg)}
+                  className="flex w-full items-center justify-between rounded-lg px-2 py-1 text-left transition hover:bg-cyan-900/30"
+                >
+                  <span className="font-medium text-slate-100">{reg.name}</span>
+                  <span className="font-mono text-cyan-300">
+                    {reg.slope_per_year.toFixed(4)} {trendMap.unit}/yr (q={reg.q_value.toFixed(3)})
+                  </span>
+                </button>
+              ))}
+              {(!trendMap.opposite_trends?.top_negative || trendMap.opposite_trends.top_negative.length === 0) && (
+                <p className="text-slate-400">No negative trends in this window.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Informative Coordinate & Regional Comparison Footer */}
       <div className="grid grid-cols-1 gap-2.5 border-t border-slate-800 bg-slate-950/80 px-4 py-3 text-xs sm:grid-cols-2">
         {/* Region A Profile */}
@@ -740,7 +684,7 @@ export default function SplitMap({
               Primary Investigation Site (Marker A)
             </span>
             <span
-              className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              className="rounded-full px-2 py-0.5 text-xs font-semibold"
               style={{
                 backgroundColor: `${colorA.hex}22`,
                 color: colorA.hex,
@@ -753,7 +697,7 @@ export default function SplitMap({
           {pointA ? (
             <>
               <p className="font-semibold text-white">{pointA.name}</p>
-              <p className="font-mono text-[11px] text-slate-400">
+              <p className="font-mono text-xs text-slate-400">
                 Coords: {pointA.lat >= 0 ? `${pointA.lat.toFixed(2)}°N` : `${Math.abs(pointA.lat).toFixed(2)}°S`},{" "}
                 {pointA.lon >= 0 ? `${pointA.lon.toFixed(2)}°E` : `${Math.abs(pointA.lon).toFixed(2)}°W`}
                 {boxA && (
@@ -765,7 +709,7 @@ export default function SplitMap({
                 )}
               </p>
               {primaryStats && (
-                <p className="text-[11px] text-slate-300">
+                <p className="text-xs text-slate-300">
                   Rate:{" "}
                   <strong className="font-mono text-cyan-200">
                     {primaryStats.sens_slope_per_decade >= 0 ? "+" : ""}
@@ -779,7 +723,7 @@ export default function SplitMap({
               )}
             </>
           ) : (
-            <p className="text-[11px] text-slate-400">Click on the map to place Marker A.</p>
+            <p className="text-xs text-slate-400">Click on the map to place Marker A.</p>
           )}
         </div>
 
@@ -791,7 +735,7 @@ export default function SplitMap({
               Teleconnection Comparison Site (Marker B)
             </span>
             <span
-              className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              className="rounded-full px-2 py-0.5 text-xs font-semibold"
               style={{
                 backgroundColor: pointB ? `${colorB.hex}22` : "#33415522",
                 color: pointB ? colorB.hex : "#94a3b8",
@@ -804,7 +748,7 @@ export default function SplitMap({
           {pointB ? (
             <>
               <p className="font-semibold text-white">{pointB.name}</p>
-              <p className="font-mono text-[11px] text-slate-400">
+              <p className="font-mono text-xs text-slate-400">
                 Coords: {pointB.lat >= 0 ? `${pointB.lat.toFixed(2)}°N` : `${Math.abs(pointB.lat).toFixed(2)}°S`},{" "}
                 {pointB.lon >= 0 ? `${pointB.lon.toFixed(2)}°E` : `${Math.abs(pointB.lon).toFixed(2)}°W`}
                 {boxB && (
@@ -816,7 +760,7 @@ export default function SplitMap({
                 )}
               </p>
               {teleconnection && (
-                <p className="text-[11px] text-slate-300">
+                <p className="text-xs text-slate-300">
                   Rate:{" "}
                   <strong className="font-mono text-indigo-200">
                     {(teleconnection.comparison_sens_slope_per_decade ?? 0) >= 0 ? "+" : ""}
@@ -832,12 +776,12 @@ export default function SplitMap({
               )}
             </>
           ) : (
-            <div className="flex flex-col gap-1 text-[11px] text-slate-400">
+            <div className="flex flex-col gap-1 text-xs text-slate-400">
               <p>Compare teleconnections across distant Earth systems.</p>
               <button
                 type="button"
                 onClick={() => onChangeActiveTarget("B")}
-                className="mt-0.5 inline-flex w-fit items-center gap-1 rounded bg-indigo-500/20 px-2 py-0.5 text-[11px] font-semibold text-indigo-300 hover:bg-indigo-500/30"
+                className="mt-0.5 inline-flex w-fit items-center gap-1 rounded bg-indigo-500/20 px-2 py-0.5 text-xs font-semibold text-indigo-300 hover:bg-indigo-500/30"
               >
                 Click here then select a point on the globe
               </button>

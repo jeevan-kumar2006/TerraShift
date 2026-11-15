@@ -107,6 +107,15 @@ export interface SeriesStats {
   ci_methodology?: string;
   horizon_assumptions?: string;
   mk_variant: string;
+  seasonal_mann_kendall?: {
+    s_statistic: number;
+    z_score: number;
+    p_value: number;
+    is_significant: boolean;
+    seasonal_sens_slope_per_year: number;
+    months_evaluated: number;
+    method: string;
+  };
 }
 
 export interface TeleconnectionSummary {
@@ -135,8 +144,12 @@ export interface DetectiveBrief {
 export interface InvestigateRequestPayload {
   case_id: string | null;
   parameter: string;
-  primary_point: GeoPoint;
-  comparison_point: GeoPoint | null;
+  primary_point?: GeoPoint | null;
+  comparison_point?: GeoPoint | null;
+  region_type?: "state" | "district" | "india" | null;
+  region_id?: string | null;
+  comparison_region_type?: "state" | "district" | "india" | null;
+  comparison_region_id?: string | null;
   start_year: number;
   end_year: number;
   mk_variant: "standard" | "hamed_rao";
@@ -161,6 +174,17 @@ export interface InvestigateResponse {
     data_status: "live" | "cache" | "offline_fallback" | "imported" | "synthetic";
     dataset_tag?: "live" | "cached" | "imported" | "synthetic" | "offline_fallback" | string;
     fallback_note: string | null;
+    source_badge?: string | null;
+    source_type?: "satellite" | "model/reanalysis" | string | null;
+    region_coverage?: {
+      region_id: string;
+      region_name: string;
+      grid_cells_used: number;
+      area_covered_pct: number;
+      weighting: string;
+      low_cell_warning?: boolean;
+    } | null;
+    quality_flags?: string[] | null;
     primary_bounding_box: BoundingBox;
     comparison_bounding_box: BoundingBox | null;
     primary_provenance?: SeriesProvenance | null;
@@ -197,22 +221,95 @@ export interface AppeearsProduct {
   resolution: string;
 }
 
-export interface CsaStation {
-  type: string;
-  station_name: string;
-  station_id: string;
-  province: string;
-  sample_date: string;
-  sample_metric: string;
-}
-
 export interface PartnerIntelResponse {
   coordinates: { lat: number; lon: number; bounding_box: BoundingBox };
   cmr_collections: CmrCollection[];
   appeears_products: AppeearsProduct[];
-  csa_geomet_stations: CsaStation[];
-  noaa_cdo_status: string;
   deep_links: PartnerDeepLink[];
+}
+
+export interface SatelliteVariable {
+  id: string;
+  label: string;
+  mission: string;
+  instrument: string;
+  units: string;
+  temporal_coverage: string;
+  spatial_resolution: string;
+  source_type: "satellite" | "model/reanalysis" | string;
+  plain_definition: string;
+  doi: string;
+  citation: string;
+}
+
+export interface TrendMapRegion {
+  region_id: string;
+  name: string;
+  level: "state" | "district";
+  state?: string | null;
+  centroid: { lat: number; lon: number };
+  slope_per_year: number;
+  slope_per_decade: number;
+  p_value: number;
+  q_value: number;
+  significant_fdr: boolean;
+  years_needed: number;
+  grid_cells_used: number;
+  direction: "increasing" | "decreasing" | "neutral";
+}
+
+export interface TrendMapResponse {
+  cache_id: string;
+  variable: string;
+  unit: string;
+  source_type: string;
+  mission: string;
+  level: "state" | "district";
+  start_year: number;
+  end_year: number;
+  season: string;
+  legend_range: { min: number; max: number; symmetric_abs_p95: number };
+  summary: {
+    total_regions: number;
+    computed_regions: number;
+    significant_fdr_count: number;
+    fdr_alpha: number;
+  };
+  opposite_trends: {
+    top_positive: TrendMapRegion[];
+    top_negative: TrendMapRegion[];
+  };
+  regions: TrendMapRegion[];
+  geojson: {
+    type: "FeatureCollection";
+    features: Array<{
+      type: "Feature";
+      properties: Record<string, unknown>;
+      geometry: unknown;
+    }>;
+  };
+}
+
+export interface SuggestVariablesResponse {
+  region_features: {
+    region_id: string | null;
+    region_name: string;
+    latitude: number;
+    longitude: number;
+    area_km2: number | null;
+    climate_zone: string;
+    biome_zone: string;
+    coastal_proximity: boolean;
+    arid_or_semiarid: boolean;
+    high_elevation_or_himalayan: boolean;
+  };
+  suggestions: Array<{
+    variable_id: string;
+    reason: string;
+    expected_direction: "increasing" | "decreasing" | "variable";
+  }>;
+  ai_enhanced: boolean;
+  model_used: string | null;
 }
 
 export interface ApiHealthResponse {

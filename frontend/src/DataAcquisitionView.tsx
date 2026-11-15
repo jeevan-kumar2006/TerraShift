@@ -31,6 +31,7 @@ import type {
 
 interface DataAcquisitionViewProps {
   apiBase: string;
+  onAnalyzeDataset?: (opts: { variable: string; regionId: string; startYear?: number; endYear?: number }) => void;
 }
 
 const DOMAIN_LABELS: { id: "all" | AcquisitionDomain; label: string }[] = [
@@ -41,7 +42,7 @@ const DOMAIN_LABELS: { id: "all" | AcquisitionDomain; label: string }[] = [
   { id: "vegetation", label: "Vegetation & Land Surface" },
 ];
 
-export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProps) {
+export default function DataAcquisitionView({ apiBase, onAnalyzeDataset }: DataAcquisitionViewProps) {
   const [domainFilter, setDomainFilter] = useState<"all" | AcquisitionDomain>("all");
   const [variables, setVariables] = useState<AcquisitionVariableSpec[]>([]);
   const [datasets, setDatasets] = useState<AcquisitionCatalogEntry[]>([]);
@@ -203,11 +204,11 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
           <div className="flex items-center gap-2">
             <Database className="h-5 w-5 text-cyan-400" />
             <h1 className="text-lg font-bold tracking-tight text-white sm:text-xl">
-              NASA &amp; Copernicus Data Acquisition &amp; QC Engine
+              NASA Earth Observation Data Acquisition &amp; QC Engine
             </h1>
           </div>
           <p className="mt-1 text-xs text-slate-400">
-            Search official 19-variable Earth observation catalogs, verify Earthdata/CDS authentication, inspect NetCDF/HDF5
+            Search official 19-variable Earth observation catalogs, verify Earthdata authentication, inspect NetCDF/HDF5
             quality flags, and mask grids strictly inside authoritative India GeoJSON polygons.
           </p>
         </div>
@@ -267,15 +268,6 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
                 )}
                 NASA Earthdata: {authStatus.earthdata_method}
               </span>
-              <span
-                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 font-semibold ${
-                  authStatus.copernicus_configured
-                    ? "border border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
-                    : "border border-slate-700 bg-slate-800 text-slate-300"
-                }`}
-              >
-                Copernicus CDS: {authStatus.copernicus_method}
-              </span>
               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2.5 py-0.5 font-semibold text-emerald-300">
                 <CheckCircle2 className="h-3 w-3" />
                 NASA POWER Regional NetCDF: Ready (No Auth)
@@ -283,7 +275,7 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
             </div>
           </div>
           {authStatus.setup_instructions.length > 0 && (
-            <div className="mt-2 space-y-1 text-[11px] text-slate-400">
+            <div className="mt-2 space-y-1 text-xs text-slate-400">
               {authStatus.setup_instructions.map((tip, idx) => (
                 <p key={idx}>• {tip}</p>
               ))}
@@ -299,7 +291,7 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
             Official 19-Variable Physical Distinction &amp; Coverage Matrix ({variables.length} Variables)
           </h2>
           <div className="max-h-72 overflow-auto rounded-xl border border-slate-800">
-            <table className="w-full text-left text-[11px]">
+            <table className="w-full text-left text-xs">
               <thead className="sticky top-0 bg-slate-950 text-slate-300">
                 <tr>
                   <th className="p-2">Code</th>
@@ -334,7 +326,7 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
           <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-xs">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-bold text-white">1. Dataset Explorer ({filteredDatasets.length})</h2>
-              <span className="text-[11px] text-slate-400">Official CMR / Direct Catalog</span>
+              <span className="text-xs text-slate-400">Official CMR / Direct Catalog</span>
             </div>
 
             <div className="mt-2.5 flex flex-wrap gap-1.5">
@@ -343,7 +335,7 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
                   key={d.id}
                   type="button"
                   onClick={() => setDomainFilter(d.id)}
-                  className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition ${
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
                     domainFilter === d.id
                       ? "bg-cyan-500/20 text-cyan-200 ring-1 ring-cyan-400/50"
                       : "bg-slate-950 text-slate-400 hover:text-white"
@@ -375,7 +367,7 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-mono text-xs font-bold text-cyan-300">{ds.dataset_id}</span>
                       <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
                           ds.authentication_required
                             ? "bg-amber-500/15 text-amber-200"
                             : "bg-emerald-500/15 text-emerald-300"
@@ -385,7 +377,7 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
                       </span>
                     </div>
                     <p className="mt-1 font-semibold text-white">{ds.dataset_name}</p>
-                    <p className="mt-0.5 text-[11px] text-slate-400">
+                    <p className="mt-0.5 text-xs text-slate-400">
                       {ds.scientific_variable} · {ds.spatial_resolution} · {ds.file_format}
                     </p>
                   </button>
@@ -403,13 +395,13 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
                   href={selectedDataset.official_docs_url}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-cyan-300 hover:underline"
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-300 hover:underline"
                 >
                   Official Docs <ExternalLink className="h-3 w-3" />
                 </a>
               </div>
 
-              <dl className="mt-3 grid grid-cols-2 gap-2 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-[11px]">
+              <dl className="mt-3 grid grid-cols-2 gap-2 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs">
                 <div>
                   <dt className="text-slate-400">CMR Concept ID</dt>
                   <dd className="font-mono text-slate-200">{selectedDataset.collection_concept_id || "Direct REST API"}</dd>
@@ -444,10 +436,10 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
                 </div>
               </dl>
 
-              <p className="mt-2.5 text-[11px] text-slate-300">
+              <p className="mt-2.5 text-xs text-slate-300">
                 <strong className="text-cyan-300">Scientific Justification:</strong> {selectedDataset.scientific_justification}
               </p>
-              <p className="mt-1.5 text-[11px] text-amber-200/90">
+              <p className="mt-1.5 text-xs text-amber-200/90">
                 <strong>Known Limitations:</strong> {selectedDataset.data_limitations}
               </p>
             </section>
@@ -463,7 +455,7 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
 
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className="flex flex-col gap-1">
-                <span className="flex items-center gap-1 text-[11px] text-slate-400">
+                <span className="flex items-center gap-1 text-xs text-slate-400">
                   <MapPin className="h-3.5 w-3.5 text-cyan-400" />
                   India Polygon Boundary ({regions.length} loaded)
                 </span>
@@ -481,7 +473,7 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
               </label>
 
               <label className="flex flex-col gap-1">
-                <span className="text-[11px] text-slate-400">Target Dataset Variable</span>
+                <span className="text-xs text-slate-400">Target Dataset Variable</span>
                 <select
                   value={selectedVariable}
                   onChange={(e) => setSelectedVariable(e.target.value)}
@@ -496,7 +488,7 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
               </label>
 
               <label className="flex flex-col gap-1">
-                <span className="text-[11px] text-slate-400">Start Date (YYYY-MM-DD)</span>
+                <span className="text-xs text-slate-400">Start Date (YYYY-MM-DD)</span>
                 <input
                   type="date"
                   value={startDate}
@@ -506,7 +498,7 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
               </label>
 
               <label className="flex flex-col gap-1">
-                <span className="text-[11px] text-slate-400">End Date (YYYY-MM-DD)</span>
+                <span className="text-xs text-slate-400">End Date (YYYY-MM-DD)</span>
                 <input
                   type="date"
                   value={endDate}
@@ -517,7 +509,7 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
             </div>
 
             {selectedRegion && (
-              <div className="mt-2.5 flex flex-wrap items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2 text-[11px] text-slate-300">
+              <div className="mt-2.5 flex flex-wrap items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs text-slate-300">
                 <span>
                   <strong className="text-cyan-300">Polygon:</strong> {selectedRegion.name}
                 </span>
@@ -527,7 +519,7 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
             )}
 
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-              <label className="flex items-center gap-2 text-[11px] text-slate-300">
+              <label className="flex items-center gap-2 text-xs text-slate-300">
                 <span>Max Granules:</span>
                 <input
                   type="number"
@@ -569,10 +561,10 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
               <h3 className="text-xs font-bold text-white">
                 Live NASA CMR Granule Results ({cmrGranules.length})
               </h3>
-              {cmrNote && <p className="mt-1 text-[11px] text-amber-200">{cmrNote}</p>}
+              {cmrNote && <p className="mt-1 text-xs text-amber-200">{cmrNote}</p>}
               {cmrGranules.length > 0 && (
                 <div className="mt-2 max-h-48 overflow-auto rounded-xl border border-slate-800">
-                  <table className="w-full text-left text-[11px]">
+                  <table className="w-full text-left text-xs">
                     <thead className="bg-slate-950 text-slate-400">
                       <tr>
                         <th className="p-2">Title</th>
@@ -618,32 +610,50 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
                   <FileCheck2 className="h-4 w-4 text-emerald-400" />
                   Acquisition, Structural Validation &amp; Polygon Masking Report
                 </div>
-                <span
-                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
-                    jobResult.status === "completed"
-                      ? "bg-emerald-500/15 text-emerald-300"
-                      : "bg-amber-500/15 text-amber-200"
-                  }`}
-                >
-                  {jobResult.status.toUpperCase()}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                      jobResult.status === "completed"
+                        ? "bg-emerald-500/15 text-emerald-300"
+                        : "bg-amber-500/15 text-amber-200"
+                    }`}
+                  >
+                    {jobResult.status.toUpperCase()}
+                  </span>
+                  {onAnalyzeDataset && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onAnalyzeDataset({
+                          variable: selectedVariable,
+                          regionId: selectedRegionId,
+                          startYear: Number(startDate.slice(0, 4)) || 1990,
+                          endYear: Number(endDate.slice(0, 4)) || 2025,
+                        })
+                      }
+                      className="rounded-lg bg-cyan-500 px-3 py-1 text-xs font-bold text-slate-950 transition hover:bg-cyan-400"
+                    >
+                      Analyse this data
+                    </button>
+                  )}
+                </div>
               </div>
 
               {jobResult.message && (
-                <p className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-2.5 text-[11px] text-amber-200">
+                <p className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-2.5 text-xs text-amber-200">
                   {jobResult.message}
                 </p>
               )}
 
               {jobResult.pilot_inspection && (
-                <p className="rounded-xl border border-cyan-500/30 bg-cyan-950/30 p-2 text-[11px] text-cyan-200">
+                <p className="rounded-xl border border-cyan-500/30 bg-cyan-950/30 p-2 text-xs text-cyan-200">
                   Showing validated India-bounded MOP03JM pilot sample (`{jobResult.pilot_inspection.retrieval_mode}`)
                   while Earthdata Login is unconfigured.
                 </p>
               )}
 
               {activeValidation && (
-                <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-[11px] sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs sm:grid-cols-4">
                   <div>
                     <span className="text-slate-400">Format / Size</span>
                     <p className="font-semibold text-white">
@@ -672,7 +682,7 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
               )}
 
               {activeQc && (
-                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-[11px]">
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs">
                   <p className="font-semibold text-white">
                     QC Profile: <span className="font-mono text-cyan-300">{activeQc.qc_profile}</span> · Valid:{" "}
                     {activeQc.valid_after_qc} / {activeQc.total_observations} (Filtered: {activeQc.filtered_fill_count} fill,{" "}
@@ -683,7 +693,7 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
               )}
 
               {activeSubset && (
-                <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-3 text-[11px]">
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-3 text-xs">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-bold text-emerald-200">
                       <Globe2 className="mr-1 inline h-3.5 w-3.5" />
@@ -699,7 +709,7 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
                       {activeSubset.time_series.slice(0, 12).map((pt) => (
                         <span
                           key={pt.timestamp}
-                          className="rounded-md border border-slate-800 bg-slate-950 px-2 py-0.5 font-mono text-[10px] text-slate-200"
+                          className="rounded-md border border-slate-800 bg-slate-950 px-2 py-0.5 font-mono text-xs text-slate-200"
                         >
                           {pt.timestamp}: {pt.area_weighted_mean ?? "—"}
                         </span>
@@ -720,13 +730,13 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
             <FolderArchive className="h-4 w-4 text-cyan-400" />
             Local Acquisition Manifest (`metadata/download_manifest.csv`)
           </div>
-          <span className="text-[11px] text-slate-400">
+          <span className="text-xs text-slate-400">
             {manifestData?.manifest.length ?? 0} registered files · {manifestData?.validations.length ?? 0} validation checks
           </span>
         </div>
 
         <div className="mt-3 max-h-64 overflow-auto rounded-xl border border-slate-800">
-          <table className="w-full text-left text-[11px]">
+          <table className="w-full text-left text-xs">
             <thead className="sticky top-0 bg-slate-950 text-slate-300">
               <tr>
                 <th className="p-2">Dataset</th>
@@ -737,6 +747,7 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
                 <th className="p-2">Retrieval</th>
                 <th className="p-2">Validation</th>
                 <th className="p-2">SHA-256 (Prefix)</th>
+                <th className="p-2">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
@@ -750,7 +761,7 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
                   <td className="p-2 text-slate-200">{row.retrieval_status}</td>
                   <td className="p-2">
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      className={`rounded-full px-2 py-0.5 text-xs font-bold ${
                         row.validation_status === "validated"
                           ? "bg-emerald-500/15 text-emerald-300"
                           : row.validation_status === "rejected"
@@ -762,12 +773,28 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
                     </span>
                   </td>
                   <td className="p-2 font-mono text-slate-400">{(row.sha256 || "").slice(0, 12)}…</td>
+                  <td className="p-2">
+                    {onAnalyzeDataset && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onAnalyzeDataset({
+                            variable: row.variable_code || selectedVariable,
+                            regionId: row.region_id || selectedRegionId,
+                          })
+                        }
+                        className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-1 text-xs font-semibold text-cyan-200 hover:bg-cyan-500/20"
+                      >
+                        Analyse this data
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
               {(!manifestData || manifestData.manifest.length === 0) && (
                 <tr>
-                  <td colSpan={8} className="p-4 text-center text-slate-400">
-                    No downloaded datasets registered yet. Run a live NASA POWER download or pilot acquisition above.
+                  <td colSpan={9} className="p-4 text-center text-slate-400">
+                    No downloaded datasets registered yet. Run a live NASA POWER or Earthdata download above.
                   </td>
                 </tr>
               )}
@@ -785,7 +812,7 @@ export default function DataAcquisitionView({ apiBase }: DataAcquisitionViewProp
               Confirm Large Archive Download
             </div>
             <p className="mt-2 text-slate-300">{confirmModalData.message}</p>
-            <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950 p-3 text-[11px] text-slate-300">
+            <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-300">
               <p>Dataset: <strong>{confirmModalData.dataset_id}</strong></p>
               <p>Estimated months: <strong>{confirmModalData.estimated_months}</strong></p>
               <p>Estimated granules: <strong>{confirmModalData.estimated_granules}</strong> (~{confirmModalData.estimated_size_mb} MB)</p>

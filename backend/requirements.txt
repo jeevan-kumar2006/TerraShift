@@ -14,5 +14,3 @@ netCDF4>=1.7.0
 h5py>=3.11.0
 shapely>=2.0.4
 earthaccess>=0.10.0
-cdsapi>=0.7.0
-zarr>=2.18.0

@@ -16,14 +16,9 @@ from typing import Any
 
 import httpx
 
+from acquisition.dataset_registry import get_trend_variable_registry
+from config import GEMINI_API_BASE_URL, GEMINI_MODEL
 from nasa_service import get_parameter_metadata
-
-GEMINI_MODELS: tuple[str, ...] = (
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-3-flash-preview",
-    "gemini-3.1-flash-lite",
-)
 
 
 def _classify_latitude_band(lat: float) -> str:
@@ -306,17 +301,15 @@ async def maybe_enhance_with_gemini(
     }
 
     async with httpx.AsyncClient(timeout=8.0) as client:
-        for model in GEMINI_MODELS:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-            try:
-                resp = await client.post(url, json=body)
-                resp.raise_for_status()
-                data = resp.json()
-                raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
-                parsed = json.loads(raw_text)
-                required = ("verdict_headline", "physical_mechanism", "seasonality_note", "horizon_note", "reference")
-                if any(not isinstance(parsed.get(key), str) or not parsed[key].strip() for key in required):
-                    continue
+        url = f"{GEMINI_API_BASE_URL}/models/{GEMINI_MODEL}:generateContent?key={api_key}"
+        try:
+            resp = await client.post(url, json=body)
+            resp.raise_for_status()
+            data = resp.json()
+            raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
+            parsed = json.loads(raw_text)
+            required = ("verdict_headline", "physical_mechanism", "seasonality_note", "horizon_note", "reference")
+            if not any(not isinstance(parsed.get(key), str) or not parsed[key].strip() for key in required):
                 headline = parsed["verdict_headline"].strip()
                 if is_synthetic and "SYNTHETIC" not in headline.upper():
                     headline = f"[SYNTHETIC DEMO] {headline}"
@@ -329,7 +322,222 @@ async def maybe_enhance_with_gemini(
                     "reference": parsed["reference"].strip(),
                     "ai_enhanced": True,
                 }
-            except Exception:
-                continue
+        except Exception:
+            pass
 
     return baseline
+
+
+def compute_region_features(
+    region_id: str | None,
+    region_name: str,
+    lat: float,
+    lon: float,
+    area_km2: float | None = None,
+) -> dict[str, Any]:
+    """Compute physical/geographic features of an Indian region from coordinates and boundary metadata."""
+    lat_f = float(lat)
+    lon_f = float(lon)
+
+    if lat_f >= 28.5:
+        climate_zone = "Himalayan / Northern Plains"
+    elif lat_f >= 23.5 and lon_f <= 74.5:
+        climate_zone = "Arid / Semi-Arid Western India"
+    elif lat_f >= 23.5 and lon_f >= 88.0:
+        climate_zone = "Humid Subtropical / Northeast Monsoon Belt"
+    elif lat_f >= 21.5:
+        climate_zone = "Central & Indo-Gangetic Plains"
+    else:
+        climate_zone = "Peninsular / Tropical Monsoon Zone"
+
+    coastal_prox = (
+        lat_f <= 22.5 and (lon_f <= 74.5 or lon_f >= 79.5)
+    ) or (lat_f <= 13.5)
+    is_arid = (lon_f <= 74.5 and 24.0 <= lat_f <= 30.5)
+    is_mountain = lat_f >= 30.0 or (lat_f >= 27.0 and lon_f >= 88.0)
+
+    return {
+        "region_id": region_id,
+        "region_name": region_name,
+        "latitude": round(lat_f, 4),
+        "longitude": round(lon_f, 4),
+        "area_km2": round(float(area_km2), 1) if area_km2 is not None else None,
+        "climate_zone": climate_zone,
+        "biome_zone": _classify_latitude_band(lat_f),
+        "coastal_proximity": coastal_prox,
+        "arid_or_semiarid": is_arid,
+        "high_elevation_or_himalayan": is_mountain,
+    }
+
+
+def _deterministic_variable_suggestions(
+    features: dict[str, Any],
+    registry_by_id: dict[str, dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Deterministic feature-driven variable suggestions using only valid registry IDs."""
+    candidates: list[tuple[str, str, str]] = []
+
+    if features.get("high_elevation_or_himalayan"):
+        candidates.append((
+            "T2M",
+            "High-elevation Himalayan and northern regions exhibit amplified warming signals and cryosphere-albedo feedbacks.",
+            "increasing",
+        ))
+        candidates.append((
+            "MOD11C3",
+            "Satellite land surface temperature captures elevation-dependent surface warming across complex terrain.",
+            "increasing",
+        ))
+    if features.get("arid_or_semiarid"):
+        candidates.append((
+            "MOD13C2",
+            "MODIS NDVI tracks vegetation greening or degradation driven by irrigation and monsoon variability in arid/semi-arid basins.",
+            "increasing",
+        ))
+        candidates.append((
+            "GWETROOT",
+            "Root-zone soil moisture directly reflects agricultural water stress and irrigation trends.",
+            "variable",
+        ))
+    if features.get("coastal_proximity"):
+        candidates.append((
+            "GPM_3IMERGM",
+            "GPM IMERG satellite precipitation resolves coastal monsoon intensity and extreme rainfall shifts.",
+            "variable",
+        ))
+        candidates.append((
+            "QV2M",
+            "Specific humidity tracks marine boundary-layer moisture transport along coastal belts.",
+            "increasing",
+        ))
+
+    defaults = [
+        (
+            "T2M",
+            "2m air temperature provides a continuous baseline for long-term regional warming detection.",
+            "increasing",
+        ),
+        (
+            "GPM_3IMERGM",
+            "Satellite precipitation measures monsoon and seasonal rainfall trends across the selected region.",
+            "variable",
+        ),
+        (
+            "MOD13C2",
+            "MODIS NDVI monitors vegetation health and land-cover response to climate and land-use change.",
+            "variable",
+        ),
+        (
+            "OMNO2d",
+            "OMI tropospheric NO2 tracks urban, industrial, and transport emissions trends.",
+            "increasing",
+        ),
+    ]
+
+    seen: set[str] = set()
+    output: list[dict[str, str]] = []
+    for var_id, reason, direction in [*candidates, *defaults]:
+        if var_id in registry_by_id and var_id not in seen:
+            seen.add(var_id)
+            output.append({
+                "variable_id": var_id,
+                "reason": reason,
+                "expected_direction": direction,
+            })
+        if len(output) >= 4:
+            break
+    return output
+
+
+def validate_suggested_variables(
+    raw_items: Any,
+    registry_by_id: dict[str, dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Validate structured AI variable suggestions against TREND_VARIABLE_REGISTRY."""
+    if not isinstance(raw_items, list):
+        return []
+    valid_directions = {"increasing", "decreasing", "variable"}
+    validated: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        var_id = str(item.get("variable_id", "")).strip()
+        reason = str(item.get("reason", "")).strip()
+        direction = str(item.get("expected_direction", "variable")).strip().lower()
+        if var_id not in registry_by_id or var_id in seen or not reason:
+            continue
+        if direction not in valid_directions:
+            direction = "variable"
+        seen.add(var_id)
+        validated.append({
+            "variable_id": var_id,
+            "reason": reason,
+            "expected_direction": direction,
+        })
+    return validated
+
+
+async def suggest_variables_for_region(
+    region_id: str | None,
+    region_name: str,
+    lat: float,
+    lon: float,
+    area_km2: float | None = None,
+) -> dict[str, Any]:
+    """Suggest Earth observation variables for an Indian region using computed features + Gemini (with deterministic fallback)."""
+    features = compute_region_features(region_id, region_name, lat, lon, area_km2=area_km2)
+    registry = get_trend_variable_registry()
+    registry_by_id = {entry["id"]: entry for entry in registry}
+    fallback = _deterministic_variable_suggestions(features, registry_by_id)
+
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        return {
+            "region_features": features,
+            "suggestions": fallback,
+            "ai_enhanced": False,
+            "model_used": None,
+        }
+
+    allowed_catalog = [
+        {"id": e["id"], "label": e["label"], "source_type": e["source_type"], "mission": e["mission"]}
+        for e in registry
+    ]
+    prompt = (
+        "You are an Earth observation scientist selecting variables to investigate long-term trends in India.\n"
+        f"Computed region features: {json.dumps(features)}\n"
+        f"Allowed variable catalog (ONLY choose variable_id from this list): {json.dumps(allowed_catalog)}\n"
+        "Return ONLY a JSON array of 3 to 4 objects with keys: variable_id, reason, expected_direction "
+        "(one of 'increasing', 'decreasing', 'variable'). Do NOT invent any numeric slopes, p-values, or unknown variable_id."
+    )
+    body = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"responseMimeType": "application/json", "temperature": 0.2},
+    }
+
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        url = f"{GEMINI_API_BASE_URL}/models/{GEMINI_MODEL}:generateContent?key={api_key}"
+        try:
+            resp = await client.post(url, json=body)
+            resp.raise_for_status()
+            data = resp.json()
+            raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
+            parsed = json.loads(raw_text)
+            validated = validate_suggested_variables(parsed, registry_by_id)
+            if validated:
+                return {
+                    "region_features": features,
+                    "suggestions": validated,
+                    "ai_enhanced": True,
+                    "model_used": GEMINI_MODEL,
+                }
+        except Exception:
+            pass
+
+    return {
+        "region_features": features,
+        "suggestions": fallback,
+        "ai_enhanced": False,
+        "model_used": None,
+    }

@@ -61,12 +61,12 @@ export function AboutView({ onNavigate }: AboutViewProps) {
             </li>
             <li>
               <strong className="text-emerald-300">IMD &amp; ISRO / MOSDAC Climatological Context:</strong>{" "}
-              Four-season Indian Meteorological Department (JF, MAM, JJAS, OND) framing and 10 Indian
-              physiographic regions alongside NASA satellite &amp; MERRA-2 reanalysis records.
+              Indian Meteorological Department seasonal framing (DJF, MAM, JJAS, ON) and Indian
+              states/districts/physiographic regions alongside NASA satellite &amp; MERRA-2 reanalysis records.
             </li>
             <li>
-              <strong className="text-indigo-300">NASA Giovanni, NOAA CDO &amp; KNMI Climate Explorer:</strong>{" "}
-              Direct CSV / 13-column table importer for analyzing exported agency time series.
+              <strong className="text-indigo-300">NASA Giovanni, GES DISC &amp; AppEEARS:</strong>{" "}
+              Direct CSV / ASCII time-series importer for analyzing exported NASA Earth observation records.
             </li>
           </ul>
         </div>

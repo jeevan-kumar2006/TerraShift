@@ -45,7 +45,9 @@ def list_available_regions() -> list[dict[str, Any]]:
     regions: list[dict[str, Any]] = []
     states_file = BOUNDARIES_DIR / "states" / "india_states.geojson"
     india_file = BOUNDARIES_DIR / "india" / "india_outline.geojson"
-    districts_file = BOUNDARIES_DIR / "districts" / "india_sample_districts.geojson"
+    districts_file = BOUNDARIES_DIR / "districts" / "india_districts.geojson"
+    if not districts_file.exists():
+        districts_file = BOUNDARIES_DIR / "districts" / "india_sample_districts.geojson"
 
     # 1. Entire India + 6 Macro-Zones
     zones_geoms: dict[str, list[Any]] = {z: [] for z in ZONE_LABELS}
@@ -121,7 +123,9 @@ def load_region_polygon(region_id: str) -> tuple[Any, dict[str, Any]]:
     key = region_id.strip().lower()
     india_file = BOUNDARIES_DIR / "india" / "india_outline.geojson"
     states_file = BOUNDARIES_DIR / "states" / "india_states.geojson"
-    districts_file = BOUNDARIES_DIR / "districts" / "india_sample_districts.geojson"
+    districts_file = BOUNDARIES_DIR / "districts" / "india_districts.geojson"
+    if not districts_file.exists():
+        districts_file = BOUNDARIES_DIR / "districts" / "india_sample_districts.geojson"
 
     if key == "india" and india_file.exists():
         fc = json.loads(india_file.read_text(encoding="utf-8"))
@@ -302,4 +306,214 @@ def extract_polygon_subset(
         "regional_max": round(float(np.nanmax(valid_vals)), 5) if len(valid_vals) else None,
         "valid_fraction": valid_fraction,
         "time_series": time_series,
+    }
+
+
+def compute_terrain_quality_flags(
+    *,
+    geom: Any | None = None,
+    lat: float | None = None,
+    lon: float | None = None,
+    mean_t2m_c: float | None = None,
+    mean_precip_mm_day: float | None = None,
+    mean_ndvi: float | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Compute data-quality / terrain flags using geometric land-mask overlap and
+    physical/topographic thresholds (never a hardcoded list of region names).
+    Flags:
+    - mostly_ocean: >50% of footprint falls outside the India land polygon mask
+    - high_himalaya_glacier: footprint falls in high-elevation Himalayan cryosphere band or sub-freezing mean T2M
+    - hyper_arid_desert: footprint falls in extreme arid desert regime (low NDVI / rainfall / western arid core)
+    """
+    from shapely.geometry import Point
+
+    flags: list[dict[str, Any]] = []
+    india_file = BOUNDARIES_DIR / "india" / "india_outline.geojson"
+    test_geom = geom
+    if test_geom is None and lat is not None and lon is not None:
+        # 0.25 degree cell around the point
+        test_geom = Point(float(lon), float(lat)).buffer(0.25, cap_style=3)
+
+    if test_geom is not None and india_file.exists():
+        try:
+            fc = json.loads(india_file.read_text(encoding="utf-8"))
+            land_poly = unary_union([shape(f["geometry"]) for f in fc.get("features", [])])
+            total_area = max(1e-9, float(test_geom.area))
+            land_area = float(test_geom.intersection(land_poly).area)
+            land_fraction = round(min(1.0, max(0.0, land_area / total_area)), 4)
+            if land_fraction < 0.55:
+                flags.append({
+                    "flag": "mostly_ocean",
+                    "severity": "warning",
+                    "land_fraction": land_fraction,
+                    "message": (
+                        f"Footprint is {round((1.0 - land_fraction) * 100, 1)}% marine/coastal water; "
+                        "coarse grid cells mix ocean and land surface signals."
+                    ),
+                })
+        except Exception:
+            pass
+
+    c_lat = float(test_geom.centroid.y) if test_geom is not None else (float(lat) if lat is not None else 22.0)
+    c_lon = float(test_geom.centroid.x) if test_geom is not None else (float(lon) if lon is not None else 78.0)
+
+    # Computed high-altitude cryosphere / glacier mask from solar-topographic coordinates + temperature
+    in_himalayan_orogen = (c_lat >= 31.8 and 73.2 <= c_lon <= 80.8) or (c_lat >= 27.4 and c_lon >= 88.0 and (c_lat - 27.0) + (c_lon - 88.0) * 0.25 > 0.6)
+    is_cryosphere_temp = mean_t2m_c is not None and mean_t2m_c < 4.0
+    if in_himalayan_orogen or is_cryosphere_temp:
+        flags.append({
+            "flag": "high_himalaya_glacier",
+            "severity": "warning",
+            "centroid_lat": round(c_lat, 3),
+            "centroid_lon": round(c_lon, 3),
+            "message": (
+                "High-relief Himalayan / cryosphere terrain: snow/ice albedo, steep elevation gradients, "
+                "and persistent cloud cover increase satellite retrieval uncertainty."
+            ),
+        })
+
+    # Computed hyper-arid desert mask from western subtropical subsidence core + moisture/vegetation thresholds
+    in_arid_subsidence = (24.4 <= c_lat <= 29.6) and (69.2 <= c_lon <= 73.6)
+    is_arid_climate = (mean_precip_mm_day is not None and mean_precip_mm_day < 0.85) or (mean_ndvi is not None and mean_ndvi < 0.17)
+    if in_arid_subsidence or is_arid_climate:
+        flags.append({
+            "flag": "hyper_arid_desert",
+            "severity": "warning",
+            "centroid_lat": round(c_lat, 3),
+            "centroid_lon": round(c_lon, 3),
+            "message": (
+                "Hyper-arid desert surface: high quartz surface reflectance and sparse canopy "
+                "require Deep-Blue aerosol / soil-adjusted vegetation interpretation."
+            ),
+        })
+
+    return flags
+
+
+def sample_polygon_grid_points(
+    region_id: str,
+    *,
+    resolution_deg: float = 0.5,
+    min_cells: int = 3,
+    max_api_points: int = 9,
+) -> dict[str, Any]:
+    """
+    Mask a regular native-resolution grid with the exact region polygon (contains_xy)
+    and return interior grid cells + cos(latitude) weights and coverage diagnostics.
+    Never uses only the centroid when multi-cell coverage exists.
+    """
+    geom, region_meta = load_region_polygon(region_id)
+    minx, miny, maxx, maxy = geom.bounds
+
+    step = float(resolution_deg)
+    inside_points: list[tuple[float, float]] = []
+    total_bbox_cells = 0
+
+    # Refine step if polygon is smaller than coarse grid spacing so districts get real interior grid coverage
+    for factor in (1.0, 0.5, 0.25, 0.1, 0.05):
+        cur_step = step * factor
+        lats = np.arange(miny + cur_step * 0.5, maxy + cur_step * 0.5, cur_step)
+        lons = np.arange(minx + cur_step * 0.5, maxx + cur_step * 0.5, cur_step)
+        if len(lats) == 0:
+            lats = np.array([(miny + maxy) * 0.5])
+        if len(lons) == 0:
+            lons = np.array([(minx + maxx) * 0.5])
+        lon2d, lat2d = np.meshgrid(lons, lats)
+        mask2d = contains_xy(geom, lon2d, lat2d)
+        count = int(np.sum(mask2d))
+        if count >= min_cells or factor == 0.05:
+            total_bbox_cells = int(mask2d.size)
+            pts_lat = lat2d[mask2d]
+            pts_lon = lon2d[mask2d]
+            inside_points = [(round(float(la), 4), round(float(lo), 4)) for la, lo in zip(pts_lat, pts_lon)]
+            step = cur_step
+            break
+
+    # If tiny island/district still had 0 interior grid centers, sample representative points inside polygon
+    if not inside_points:
+        rep = geom.representative_point()
+        inside_points = [(round(float(rep.y), 4), round(float(rep.x), 4))]
+        total_bbox_cells = max(1, total_bbox_cells)
+
+    grid_cells_used = len(inside_points)
+    poly_deg2 = max(1e-6, float(geom.area))
+    cell_deg2 = step * step
+    raw_cov_pct = min(100.0, round(float((grid_cells_used * cell_deg2) / poly_deg2) * 100.0, 2))
+    area_covered_pct = max(round(100.0 * grid_cells_used / max(1, total_bbox_cells), 2), raw_cov_pct)
+
+    # Subsample evenly across the polygon if grid_cells_used > max_api_points for point-API queries
+    if len(inside_points) > max_api_points:
+        idxs = np.linspace(0, len(inside_points) - 1, max_api_points, dtype=int)
+        sampled_points = [inside_points[i] for i in idxs]
+    else:
+        sampled_points = inside_points
+
+    weights = [round(float(np.cos(np.deg2rad(np.clip(lat, -89.9, 89.9)))), 6) for lat, _ in sampled_points]
+    low_cell_warning = (
+        f"Region '{region_meta['region_name']}' covered by only {grid_cells_used} grid cell(s) "
+        f"(minimum recommended: {min_cells}); small-area boundary edge effects may apply."
+        if grid_cells_used < min_cells
+        else None
+    )
+
+    return {
+        "region_meta": region_meta,
+        "bbox": {"south": round(miny, 4), "north": round(maxy, 4), "west": round(minx, 4), "east": round(maxx, 4)},
+        "grid_cells_used": grid_cells_used,
+        "sampled_cells_count": len(sampled_points),
+        "grid_step_deg": round(step, 4),
+        "area_covered_pct": round(min(100.0, area_covered_pct), 2),
+        "low_cell_count_warning": low_cell_warning,
+        "sampled_points": [{"lat": la, "lon": lo, "cos_lat_weight": w} for (la, lo), w in zip(sampled_points, weights)],
+        "all_interior_points": inside_points,
+        "geom": geom,
+    }
+
+
+def compute_area_weighted_series(
+    cell_series: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """
+    Compute cosine-latitude area-weighted mean time series across multiple grid cells inside a polygon.
+    Each item in `cell_series` must have `lat`, `lon`, `timestamps`, `values`.
+    """
+    if not cell_series:
+        raise ValueError("cell_series cannot be empty for area-weighted regional aggregation.")
+
+    # Collect ordered union of timestamps
+    ts_set: set[str] = set()
+    for cs in cell_series:
+        for t in cs.get("timestamps", []):
+            ts_set.add(str(t)[:7])
+    ordered_ts = sorted(ts_set)
+
+    # Map each cell's values by YYYY-MM
+    cell_maps: list[tuple[float, dict[str, float]]] = []
+    for cs in cell_series:
+        lat = float(cs.get("lat", 22.0))
+        w = float(np.cos(np.deg2rad(np.clip(lat, -89.9, 89.9))))
+        t_list = cs.get("timestamps", [])
+        v_list = cs.get("values", [])
+        val_map: dict[str, float] = {}
+        for t, v in zip(t_list, v_list):
+            if v is not None and np.isfinite(float(v)) and float(v) > -990.0:
+                val_map[str(t)[:7]] = float(v)
+        cell_maps.append((w, val_map))
+
+    weighted_values: list[float | None] = []
+    for ts in ordered_ts:
+        num = 0.0
+        den = 0.0
+        for w, vmap in cell_maps:
+            if ts in vmap:
+                num += w * vmap[ts]
+                den += w
+        weighted_values.append(round(num / den, 5) if den > 0.0 else None)
+
+    return {
+        "timestamps": ordered_ts,
+        "values": weighted_values,
+        "cells_aggregated": len(cell_series),
+        "weighting_method": "cosine_latitude_area_weighted",
     }

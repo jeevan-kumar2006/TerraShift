@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "total_variables": 19,
-  "total_datasets": 26,
+  "total_datasets": 27,
   "variables": [
     {
       "variable_code": "CO",
@@ -1089,6 +1089,37 @@
       "official_docs_url": "https://lpdaac.usgs.gov/products/mod17a2hgfv061/",
       "data_limitations": "Crops under intensive fertilization can exceed biome-specific Light Use Efficiency assumptions.",
       "scientific_justification": "Directly quantifies photosynthetic carbon assimilation beyond spectral greenness indices."
+    },
+    {
+      "dataset_id": "OMNO2d",
+      "dataset_name": "OMI/Aura NO2 Cloud-Screened Total and Tropospheric Column L3 Global Gridded 0.25 degree",
+      "scientific_variable": "Tropospheric NO2 Column Density",
+      "variable_code": "NO2",
+      "domain": "atmospheric",
+      "collection_concept_id": "C1266136111-GES_DISC",
+      "product_version": "003",
+      "data_provider": "NASA GES DISC",
+      "variable_names": [
+        "ColumnAmountNO2TropCloudScreened"
+      ],
+      "units": "10^15 molec/cm\u00b2",
+      "spatial_resolution": "0.25\u00b0 \u00d7 0.25\u00b0",
+      "temporal_resolution": "Monthly (aggregated from L3 daily)",
+      "first_available_date": "2004-10-01",
+      "last_available_date": "Present",
+      "geographic_coverage": "Global (India subset 6.0\u00b0N\u201337.5\u00b0N, 68.0\u00b0E\u201397.5\u00b0E)",
+      "file_format": "HDF-EOS5 (.he5) / NetCDF4",
+      "quality_flags": [
+        "CloudFraction < 0.30"
+      ],
+      "authentication_required": true,
+      "auth_provider": "NASA Earthdata Login",
+      "download_mechanism": "GES DISC OPeNDAP / Giovanni / Earthdata HTTPS",
+      "supports_spatial_subset": true,
+      "supports_temporal_subset": true,
+      "official_docs_url": "https://disc.gsfc.nasa.gov/datasets/OMNO2d_003/summary",
+      "data_limitations": "Cloud-screened (<30% cloud radiative fraction); row anomaly reduces swath coverage post-2009.",
+      "scientific_justification": "Directly measures satellite tropospheric nitrogen dioxide column over Indian urban-industrial corridors and thermal power belts."
     }
   ]
 }
