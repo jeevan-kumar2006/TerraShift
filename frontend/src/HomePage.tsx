@@ -50,21 +50,18 @@ const nasaImages = [
     alt: "Curved Earth limb and clouds photographed from orbit",
     title: "The orbital horizon",
     credit: "NASA / PIA11066",
-    href: "https://images.nasa.gov/details/PIA11066",
   },
   {
     src: "/images/nasa/iss045e013851.jpg",
     alt: "Night-side Earth observation from the International Space Station",
     title: "Observation at night",
     credit: "NASA / ISS045-E-013851",
-    href: "https://images.nasa.gov/details/iss045e013851",
   },
   {
     src: "/images/nasa/sl4-143-4707.jpg",
     alt: "Skylab space station cluster above a cloud-covered Earth",
     title: "Infrastructure in orbit",
     credit: "NASA / SL4-143-4707",
-    href: "https://images.nasa.gov/details/sl4-143-4707",
   },
 ];
 
@@ -205,10 +202,9 @@ export default function HomePage({
         <div className="nasa-archive-grid">
           {nasaImages.map((image) => (
             <figure className="nasa-image-card" key={image.src}>
-              <a href={image.href} target="_blank" rel="noreferrer">
+              <div className="nasa-image-frame">
                 <img src={image.src} alt={image.alt} loading="lazy" />
-                <span className="nasa-image-arrow" aria-hidden="true">↗</span>
-              </a>
+              </div>
               <figcaption>
                 <strong>{image.title}</strong>
                 <span>{image.credit}</span>

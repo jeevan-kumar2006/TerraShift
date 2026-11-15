@@ -299,14 +299,14 @@ textarea:focus-visible {
   background: var(--panel);
 }
 
-.nasa-image-card a {
+.nasa-image-frame {
   position: relative;
   display: block;
   height: 260px;
   overflow: hidden;
 }
 
-.nasa-image-card:first-child a {
+.nasa-image-card:first-child .nasa-image-frame {
   height: 320px;
 }
 
@@ -330,30 +330,16 @@ textarea:focus-visible {
   object-position: 42% center;
 }
 
-.nasa-image-card a::after {
+.nasa-image-frame::after {
   position: absolute;
   inset: 0;
   background: linear-gradient(180deg, transparent 48%, rgba(7, 9, 11, 0.65));
   content: "";
 }
 
-.nasa-image-card a:hover img {
+.nasa-image-frame:hover img {
   filter: saturate(1) contrast(1.08);
   transform: scale(1.035);
-}
-
-.nasa-image-arrow {
-  position: absolute;
-  z-index: 1;
-  top: 1rem;
-  right: 1rem;
-  display: grid;
-  height: 2rem;
-  width: 2rem;
-  place-items: center;
-  border: 1px solid rgba(243, 245, 242, 0.45);
-  color: var(--paper);
-  font-size: 1rem;
 }
 
 .nasa-image-card figcaption {
@@ -1187,8 +1173,8 @@ textarea:focus-visible {
     margin-top: 2.5rem;
   }
 
-  .nasa-image-card a,
-  .nasa-image-card:first-child a {
+  .nasa-image-card .nasa-image-frame,
+  .nasa-image-card:first-child .nasa-image-frame {
     height: 220px;
   }
 
