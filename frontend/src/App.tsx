@@ -122,7 +122,13 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [showTooltip, setShowTooltip] = useState<boolean>(false);
-  const [dossierOpen, setDossierOpen] = useState<boolean>(false);
+  const [dossierOpen, setDossierOpen] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const p = new URLSearchParams(window.location.search);
+      return p.get("dossier") === "1" || p.get("dossier") === "true";
+    }
+    return false;
+  });
   const [fitVersion, setFitVersion] = useState<number>(1);
   const [apiOnline, setApiOnline] = useState<boolean | null>(null);
 
@@ -1341,6 +1347,7 @@ export default function App() {
                 windowRange={windowRange}
                 onChangeWindow={handleChangeWindow}
                 loading={loading}
+                onOpenDossier={() => setDossierOpen(true)}
               />
             ) : (
               <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-8 sm:p-12 text-center shadow-xl">

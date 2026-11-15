@@ -16,6 +16,8 @@ import {
   TrendingUp,
 } from "lucide-react";
 import type { GeoPoint, InvestigateResponse } from "./types";
+import UpfrontTrendSummary from "./UpfrontTrendSummary";
+import LaymanStatisticalMethods from "./LaymanStatisticalMethods";
 
 interface StatsDashboardProps {
   investigation: InvestigateResponse;
@@ -228,8 +230,24 @@ export default function StatsDashboard({
   const acfSig = Boolean(ps.autocorrelation_significant);
   const outlierCount = ps.outlier_count ?? 0;
 
+  const ciLowDecade = ps.sens_slope_ci_lower !== undefined && ps.sens_slope_ci_lower !== null
+    ? (ps.sens_slope_ci_lower * 10).toFixed(3)
+    : "—";
+  const ciHighDecade = ps.sens_slope_ci_upper !== undefined && ps.sens_slope_ci_upper !== null
+    ? (ps.sens_slope_ci_upper * 10).toFixed(3)
+    : "—";
+
   return (
     <div className="space-y-6">
+      {/* Upfront Research Finding: Immediate Answer to Core Trend Question */}
+      <UpfrontTrendSummary
+        investigation={investigation}
+        pointA={pointA}
+        pointB={pointB}
+        windowRange={[investigation.request.start_year, investigation.request.end_year]}
+        variant="dark"
+      />
+
       {/* Top Verdict Summary Card */}
       <section className={`rounded-2xl border p-5 shadow-xl sm:p-6 ${verdict.cardClass}`}>
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -381,11 +399,11 @@ export default function StatsDashboard({
             <p className="text-xs text-slate-500">df = {df}</p>
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
-            <p className="text-xs text-slate-400">95% Slope CI</p>
+            <p className="text-xs text-slate-400">95% Sen's Slope CI</p>
             <p className="mt-1 font-mono text-xs font-bold text-slate-100">
-              [{ps.sens_slope_ci_lower ?? "—"}, {ps.sens_slope_ci_upper ?? "—"}]
+              [{ciLowDecade}, {ciHighDecade}]
             </p>
-            <p className="text-xs text-slate-500">{metadata.unit}/year</p>
+            <p className="text-xs text-slate-500">{metadata.unit}/decade (Sen 1968)</p>
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
             <p className="text-xs text-slate-400">Seasonality Removed</p>
@@ -420,6 +438,9 @@ export default function StatsDashboard({
           </button>
         </div>
       )}
+
+      {/* Plain-Language Statistical Methods & Technical Calculations Table */}
+      <LaymanStatisticalMethods stats={ps} unit={metadata.unit} variant="dark" />
 
       {/* 5 Core Statistical Method Cards (expanded with Show the science) */}
       {showScience && (

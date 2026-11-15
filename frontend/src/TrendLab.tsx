@@ -27,6 +27,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import type { GeoPoint, InvestigateResponse } from "./types";
+import UpfrontTrendSummary from "./UpfrontTrendSummary";
 
 type ChartMode = "raw" | "deseasonalized" | "teleconnection";
 
@@ -37,6 +38,7 @@ interface TrendLabProps {
   windowRange: [number, number];
   onChangeWindow: (next: [number, number]) => void;
   loading: boolean;
+  onOpenDossier?: () => void;
 }
 
 function formatPValue(p: number | null | undefined): string {
@@ -155,6 +157,7 @@ export default function TrendLab({
   windowRange,
   onChangeWindow,
   loading,
+  onOpenDossier,
 }: TrendLabProps) {
   const [chartMode, setChartMode] = useState<ChartMode>("raw");
   const [draftStart, setDraftStart] = useState<number>(windowRange[0]);
@@ -283,6 +286,16 @@ export default function TrendLab({
             <span className="rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 font-mono text-xs text-cyan-300">
               {(investigation.response.dataset_tag ?? investigation.response.data_status).toUpperCase()}
             </span>
+            {onOpenDossier && (
+              <button
+                type="button"
+                onClick={onOpenDossier}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1 text-[11px] font-semibold text-slate-200 transition hover:border-cyan-400 hover:text-white"
+              >
+                <Radio className="h-3 w-3 text-cyan-400" />
+                Print / Save PDF Dossier
+              </button>
+            )}
           </div>
         </div>
 
@@ -374,6 +387,15 @@ export default function TrendLab({
           </button>
         </div>
       </div>
+
+      {/* Upfront Research Finding: Answering the Core Trend Question */}
+      <UpfrontTrendSummary
+        investigation={investigation}
+        pointA={pointA}
+        pointB={pointB}
+        windowRange={windowRange}
+        variant="dark"
+      />
 
       {/* Main Analysis Grid */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
@@ -1189,6 +1211,21 @@ export default function TrendLab({
                   {investigation.response.primary_provenance && investigation.response.primary_provenance.fallback_distance_km > 0
                     ? `Fallback source at ${investigation.response.primary_provenance.source_lat.toFixed(2)}°, ${investigation.response.primary_provenance.source_lon.toFixed(2)}° (${investigation.response.primary_provenance.fallback_distance_km} km away)`
                     : `Exact requested coordinates (${investigation.response.primary_provenance?.retrieval_status ?? investigation.response.data_status})`}
+                </dd>
+              </div>
+              <div className="col-span-2">
+                <dt className="text-[10px] text-slate-400">Provenance Note</dt>
+                <dd className="text-[10px] text-slate-300">
+                {investigation.response.primary_provenance?.provenance_note ??
+                  "Interpretation is limited to the supplied dataset metadata and processing window."}
+                {investigation.response.primary_provenance?.access_url ? (
+                  <>
+                    {" "}
+                    <span className="font-mono text-cyan-300">
+                      Access endpoint recorded in export.
+                    </span>
+                  </>
+                ) : null}
                 </dd>
               </div>
             </dl>
