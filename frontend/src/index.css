@@ -31,35 +31,61 @@ input[type="range"] {
   accent-color: #22d3ee;
 }
 
-/* 1-Page Printable NASA Earth System Trend Detective Field Dossier */
+/* Dedicated Multi-Page Print & PDF Generation Stylesheet */
 @media print {
   @page {
     size: A4 portrait;
-    margin: 8mm;
+    margin: 10mm;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-shadow: none !important;
+    text-shadow: none !important;
   }
 
   html,
-  body {
+  body,
+  #root,
+  .app-shell {
     background: #ffffff !important;
+    background-color: #ffffff !important;
     color: #0f172a !important;
     margin: 0 !important;
     padding: 0 !important;
+    min-height: auto !important;
+    height: auto !important;
+    overflow: visible !important;
     font-size: 11px !important;
-    line-height: 1.35 !important;
+    line-height: 1.4 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
 
-  .app-shell-hide-on-print {
+  .app-shell-hide-on-print,
+  .no-print {
     display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
   }
 
   .dossier-modal-backdrop {
     position: static !important;
-    background: transparent !important;
+    display: block !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
     padding: 0 !important;
     margin: 0 !important;
     overflow: visible !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    inset: auto !important;
+    width: 100% !important;
+    height: auto !important;
+    z-index: auto !important;
   }
 
   .dossier-print-root {
@@ -70,28 +96,43 @@ input[type="range"] {
     margin: 0 !important;
     padding: 0 !important;
     background: #ffffff !important;
+    background-color: #ffffff !important;
     color: #0f172a !important;
     max-height: none !important;
     overflow: visible !important;
+    height: auto !important;
   }
 
-  .dossier-print-root .h-\[175px\] {
-    height: 140px !important;
-  }
-
-  .dossier-print-root p,
-  .dossier-print-root span,
-  .dossier-print-root div {
-    break-inside: avoid;
-  }
-
-  .no-print {
-    display: none !important;
-  }
-
-  .print-avoid-break {
+  .print-section {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
+    margin-bottom: 12px !important;
+    background-color: #ffffff !important;
+  }
+
+  .dossier-chart-container {
+    height: 200px !important;
+    min-height: 200px !important;
+    width: 100% !important;
+    display: block !important;
+    overflow: visible !important;
+  }
+
+  .recharts-responsive-container {
+    height: 200px !important;
+    min-height: 200px !important;
+    width: 100% !important;
+    overflow: visible !important;
+  }
+
+  .recharts-wrapper,
+  .recharts-surface {
+    overflow: visible !important;
+  }
+
+  /* Ensure high contrast and readability on white paper */
+  p, span, td, th, h1, h2, h3, h4 {
+    color: inherit;
   }
 }
 
