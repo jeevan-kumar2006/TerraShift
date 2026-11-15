@@ -1266,7 +1266,7 @@ export default function App() {
 
         {activeSection === "india" && (
           <IndiaRegionalView
-            apiBase={API_BASE}
+            apiBase={API_BASE_URL}
             cases={cases}
             onSelectRegionForMap={(lat, lon, name, paramCode) => {
               setPointA({ lat, lon, name });
