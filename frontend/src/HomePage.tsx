@@ -101,20 +101,20 @@ export default function HomePage({
         <div className="hero-glow hero-glow-two" aria-hidden="true" />
 
         <div className="hero-copy">
-          <div className="eyebrow eyebrow-light">
+          <div className="eyebrow eyebrow-light hero-anim-eyebrow">
             <span className="eyebrow-mark" />
             India Orbital Observatory / 01
           </div>
-          <h1>
+          <h1 className="hero-anim-title">
             Read India&apos;s signal
             <br />
             <span>before it moves.</span>
           </h1>
-          <p className="hero-lede">
+          <p className="hero-lede hero-anim-lede">
             TerraShift turns long-running NASA Earth observation over India into a clear, defensible
             view of monsoon, Himalayan, and soil-moisture trends.
           </p>
-          <div className="hero-actions">
+          <div className="hero-actions hero-anim-actions">
             <button type="button" className="button button-primary" onClick={() => onNavigate("explore")}>
               Begin an investigation
               <ArrowUpRight className="h-4 w-4" />
@@ -130,7 +130,7 @@ export default function HomePage({
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
-          <div className="hero-proof">
+          <div className="hero-proof hero-anim-proof">
             <div className="proof-item">
               <span className="proof-value">{activeStats?.observation_years ? `${activeStats.observation_years.toFixed(0)}+` : "LIVE"}</span>
               <span className="proof-label">{activeStats ? "years in view" : "NASA data path"}</span>
@@ -148,7 +148,7 @@ export default function HomePage({
           </div>
         </div>
 
-        <div className="hero-instrument" aria-label="Live investigation summary">
+        <div className="hero-instrument hero-anim-instrument" aria-label="Live investigation summary">
           <div className="instrument-header">
             <div className="instrument-label">
               <Radar className="h-4 w-4" />
@@ -173,13 +173,13 @@ export default function HomePage({
             </div>
             <div className="instrument-readout instrument-readout-bottom">
               <span>LAT / LONG</span>
-              <strong>{activePoint ? `${activePoint.lat.toFixed(2)}° / ${activePoint.lon.toFixed(2)}°` : "78.22° / 15.63°"}</strong>
+              <strong>{activePoint ? `${activePoint.lat.toFixed(2)}° / ${activePoint.lon.toFixed(2)}°` : "28.61° / 77.21°"}</strong>
             </div>
           </div>
           <div className="instrument-data">
             <div>
               <span className="data-label">Current focus</span>
-              <strong>{activePoint?.name ?? "Svalbard Archipelago"}</strong>
+              <strong>{activePoint?.name ?? "New Delhi, India"}</strong>
             </div>
             <div>
               <span className="data-label">Variable</span>
@@ -353,7 +353,7 @@ export default function HomePage({
       <section className="home-footer-signals" aria-label="TerraShift platform capabilities">
         <div className="footer-signal">
           <Globe2 className="h-4 w-4" />
-          <span>Global coverage</span>
+          <span>All-India coverage</span>
         </div>
         <div className="footer-signal">
           <Database className="h-4 w-4" />
