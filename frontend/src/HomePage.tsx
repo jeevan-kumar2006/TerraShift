@@ -14,7 +14,14 @@ import {
 } from "lucide-react";
 import type { InvestigateResponse, PresetCaseMeta } from "./types";
 
-export type NavSection = "home" | "explore" | "analysis" | "results" | "about" | "help";
+export type NavSection =
+  | "home"
+  | "explore"
+  | "acquisition"
+  | "analysis"
+  | "results"
+  | "about"
+  | "help";
 
 interface HomePageProps {
   cases: PresetCaseMeta[];

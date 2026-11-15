@@ -246,3 +246,167 @@ export interface ApiErrorResponse {
   error_type?: string;
   status_code?: number;
 }
+
+export type AcquisitionDomain = "atmospheric" | "climate" | "hydrology" | "vegetation";
+
+export interface AcquisitionVariableSpec {
+  variable_code: string;
+  variable_name: string;
+  domain: AcquisitionDomain;
+  primary_dataset_id: string;
+  secondary_dataset_ids: string[];
+  scientific_justification: string;
+  physical_distinction_note: string;
+  canonical_units: string;
+}
+
+export interface AcquisitionCatalogEntry {
+  dataset_id: string;
+  dataset_name: string;
+  scientific_variable: string;
+  variable_code: string;
+  domain: AcquisitionDomain;
+  collection_concept_id: string | null;
+  product_version: string;
+  data_provider: string;
+  variable_names: string[];
+  units: string;
+  spatial_resolution: string;
+  temporal_resolution: string;
+  first_available_date: string;
+  last_available_date: string;
+  geographic_coverage: string;
+  file_format: string;
+  quality_flags: string[];
+  authentication_required: boolean;
+  auth_provider: string;
+  download_mechanism: string;
+  supports_spatial_subset: boolean;
+  supports_temporal_subset: boolean;
+  official_docs_url: string;
+  data_limitations: string;
+  scientific_justification: string;
+}
+
+export interface AcquisitionMatrixRow {
+  variable_code: string;
+  variable_name: string;
+  domain: AcquisitionDomain;
+  primary_dataset: string;
+  primary_provider: string;
+  auth_required: boolean;
+  supports_spatial_subset: boolean;
+  canonical_units: string;
+  physical_distinction_note: string;
+}
+
+export interface AcquisitionAuthStatus {
+  earthdata_authenticated: boolean;
+  earthdata_method: string;
+  netrc_present: boolean;
+  earthaccess_available: boolean;
+  copernicus_configured: boolean;
+  copernicus_method: string;
+  appeears_ready: boolean;
+  missing_credentials: string[];
+  setup_instructions: string[];
+}
+
+export interface AcquisitionRegion {
+  region_id: string;
+  name: string;
+  zone: string;
+  level: string;
+  vertex_count: number;
+  bbox: [number, number, number, number];
+}
+
+export interface AcquisitionGranule {
+  granule_id: string;
+  title: string;
+  collection_concept_id: string;
+  time_start: string | null;
+  time_end: string | null;
+  size_mb: number | null;
+  download_url: string | null;
+  opendap_url: string | null;
+}
+
+export interface AcquisitionValidationReport {
+  file_path: string;
+  file_format: string;
+  file_size_bytes: number;
+  passed: boolean;
+  dimensions: Record<string, number>;
+  variables: string[];
+  units: Record<string, string>;
+  duplicate_timestamps_count: number;
+  missing_timestamps_count: number;
+  missing_value_pct: number;
+  quality_flags_detected: string[];
+  errors: string[];
+  warnings: string[];
+}
+
+export interface AcquisitionQCReport {
+  dataset_id: string;
+  qc_profile: string;
+  raw_file_path: string;
+  validated_file_path: string | null;
+  total_observations: number;
+  valid_after_qc: number;
+  filtered_fill_count: number;
+  filtered_out_of_range_count: number;
+  filtered_qc_flag_count: number;
+  applied_filters: string[];
+  units_verified: string | null;
+  passed: boolean;
+}
+
+export interface AcquisitionSpatialSubset {
+  region_id: string;
+  region_name: string;
+  region_level: string;
+  boundary_file: string;
+  polygon_vertex_count: number;
+  grid_cells_total: number;
+  grid_cells_inside_mask: number;
+  original_resolution_preserved: boolean;
+  weighting_method: string;
+  output_file: string;
+  variable_name: string;
+  units: string;
+  regional_mean: number | null;
+  regional_min: number | null;
+  regional_max: number | null;
+  valid_fraction: number;
+  time_series: { timestamp: string; area_weighted_mean: number | null }[];
+}
+
+export interface AcquisitionDownloadResponse {
+  status: string;
+  dataset_id: string;
+  retrieval_mode?: string;
+  auth_required?: boolean;
+  message?: string;
+  estimated_months?: number;
+  estimated_granules?: number;
+  estimated_size_mb?: number;
+  cmr_granules_discovered?: number;
+  granules?: AcquisitionGranule[];
+  validation?: AcquisitionValidationReport;
+  qc?: AcquisitionQCReport;
+  spatial_subset?: AcquisitionSpatialSubset | null;
+  pilot_inspection?: {
+    retrieval_mode: string;
+    validation: AcquisitionValidationReport;
+    qc: AcquisitionQCReport;
+    spatial_subset: AcquisitionSpatialSubset | null;
+  } | null;
+}
+
+export interface AcquisitionManifestData {
+  manifest: Record<string, string>[];
+  validations: Record<string, string>[];
+  storage: Record<string, unknown>;
+}

@@ -50,6 +50,48 @@ from nasa_service import (
     parse_external_timeseries,
 )
 from stats_engine import analyze_series
+import xarray as xr
+
+try:
+    from acquisition import (
+        apply_quality_control,
+        download_granules_parallel,
+        download_power_regional_netcdf,
+        extract_polygon_subset,
+        get_auth_diagnostics,
+        get_dataset_by_id,
+        get_storage_summary,
+        list_available_regions,
+        list_catalog,
+        load_region_polygon,
+        read_manifest_entries,
+        read_validation_reports,
+        search_granules,
+        validate_file,
+    )
+    from acquisition.models import DownloadRequest
+    from acquisition.storage_manager import get_raw_path
+    from acquisition.temporal_subset import parse_iso_date, validate_temporal_window
+except ImportError:
+    from backend.acquisition import (
+        apply_quality_control,
+        download_granules_parallel,
+        download_power_regional_netcdf,
+        extract_polygon_subset,
+        get_auth_diagnostics,
+        get_dataset_by_id,
+        get_storage_summary,
+        list_available_regions,
+        list_catalog,
+        load_region_polygon,
+        read_manifest_entries,
+        read_validation_reports,
+        search_granules,
+        validate_file,
+    )
+    from backend.acquisition.models import DownloadRequest
+    from backend.acquisition.storage_manager import get_raw_path
+    from backend.acquisition.temporal_subset import parse_iso_date, validate_temporal_window
 
 app = FastAPI(
     title="TerraShift API",
@@ -568,10 +610,21 @@ def get_parameters() -> dict[str, Any]:
     return {"parameters": PARAMETER_METADATA}
 
 
+_CASE_DETAIL_MEMO: dict[tuple[str, int | None, int | None, str], dict[str, Any]] = {}
+
+
 @app.get("/api/cases", response_model=CasesListResponseModel)
-def get_cases() -> dict[str, Any]:
+async def get_cases() -> dict[str, Any]:
     """Return metadata for the 6 curated Detective Case Files plus parameter registry."""
-    return {"cases": list_preset_cases(), "parameters": PARAMETER_METADATA}
+    cases = list_preset_cases()
+    if not _CASE_DETAIL_MEMO and not os.environ.get("GEMINI_API_KEY", "").strip():
+        for c_item in cases:
+            if c_item.get("cached"):
+                try:
+                    await get_case_detail(c_item["case_id"], start_year=None, end_year=None, mk_variant="standard")
+                except Exception:
+                    pass
+    return {"cases": cases, "parameters": PARAMETER_METADATA}
 
 
 @app.get("/api/cases/{case_id}", response_model=InvestigateResponseModel)
@@ -584,6 +637,11 @@ async def get_case_detail(
     """Run full investigation on a pre-cached Detective Case File with optional window slicing."""
     if start_year is not None and end_year is not None and start_year >= end_year:
         raise HTTPException(status_code=400, detail="start_year must be strictly less than end_year.")
+
+    use_memo = not os.environ.get("GEMINI_API_KEY", "").strip()
+    memo_key = (case_id, start_year, end_year, mk_variant)
+    if use_memo and memo_key in _CASE_DETAIL_MEMO:
+        return _CASE_DETAIL_MEMO[memo_key]
 
     preset = get_preset_case_series(case_id, start_year, end_year)
     if preset is None:
@@ -602,7 +660,10 @@ async def get_case_detail(
         end_year=e_yr,
         mk_variant=mk_variant,
     )
-    return await investigate_endpoint(req)
+    res = await investigate_endpoint(req)
+    if use_memo:
+        _CASE_DETAIL_MEMO[memo_key] = res
+    return res
 
 
 @app.get("/api/partner-intel", response_model=PartnerIntelResponseModel)
@@ -950,6 +1011,318 @@ async def explain_endpoint(req: ExplainRequest) -> dict[str, Any]:
         missing_pct=req.missing_pct,
     )
     return await _maybe_enhance_with_gemini(req, baseline)
+
+
+@app.get("/api/acquisition/catalog")
+async def acquisition_catalog_endpoint(
+    domain: str | None = Query(default=None),
+    variable_code: str | None = Query(default=None),
+) -> dict[str, Any]:
+    """Return official 19-variable Earth observation catalog, availability matrix, and storage layout."""
+    payload = list_catalog(domain=domain, variable_code=variable_code)
+    payload["storage_summary"] = get_storage_summary()
+    return payload
+
+
+@app.get("/api/acquisition/auth-status")
+async def acquisition_auth_status_endpoint() -> dict[str, Any]:
+    """Return non-secret NASA Earthdata Login and Copernicus CDS authentication readiness diagnostics."""
+    return get_auth_diagnostics()
+
+
+@app.get("/api/acquisition/boundaries")
+async def acquisition_boundaries_endpoint() -> dict[str, Any]:
+    """Return supported India polygon boundaries across macro-zones, states/UTs, and districts."""
+    regions = list_available_regions()
+    return {"count": len(regions), "regions": regions}
+
+
+@app.get("/api/acquisition/cmr-search")
+async def acquisition_cmr_search_endpoint(
+    dataset_id: str | None = Query(default=None),
+    collection_concept_id: str | None = Query(default=None),
+    start_date: str = Query(default="2024-01-01"),
+    end_date: str = Query(default="2024-03-31"),
+    region_id: str = Query(default="india"),
+    page_size: int = Query(default=10, ge=1, le=50),
+) -> dict[str, Any]:
+    """Search official NASA CMR granules constrained by dataset concept ID, temporal window, and India polygon bbox."""
+    try:
+        s_norm, e_norm = validate_temporal_window(start_date, end_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    concept = collection_concept_id
+    entry = get_dataset_by_id(dataset_id) if dataset_id else None
+    if dataset_id and entry is None:
+        raise HTTPException(status_code=404, detail=f"Unknown dataset_id '{dataset_id}'.")
+    if entry and not concept:
+        concept = entry.get("collection_concept_id")
+
+    if not concept:
+        return {
+            "dataset_id": dataset_id,
+            "collection_concept_id": None,
+            "region_id": region_id,
+            "granules": [],
+            "note": "Dataset uses direct regional/CDS API rather than NASA CMR granule search.",
+        }
+
+    try:
+        geom, region_meta = load_region_polygon(region_id)
+        bbox = geom.bounds  # (minx, miny, maxx, maxy)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    try:
+        granules = await search_granules(
+            collection_concept_id=concept,
+            start_date=s_norm,
+            end_date=e_norm,
+            bounding_box=(float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])),
+            page_size=page_size,
+            max_pages=1,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"NASA CMR search failed for concept '{concept}': {type(exc).__name__}",
+        ) from exc
+
+    return {
+        "dataset_id": dataset_id,
+        "collection_concept_id": concept,
+        "region_id": region_meta["region_id"],
+        "region_name": region_meta["region_name"],
+        "bounding_box": [round(float(x), 3) for x in bbox],
+        "start_date": s_norm,
+        "end_date": e_norm,
+        "count": len(granules),
+        "granules": granules,
+    }
+
+
+@app.get("/api/acquisition/manifest")
+async def acquisition_manifest_endpoint() -> dict[str, Any]:
+    """Return persisted download manifest, validation reports, and storage directory summary."""
+    return {
+        "manifest": read_manifest_entries(),
+        "validations": read_validation_reports(),
+        "storage": get_storage_summary(),
+    }
+
+
+def _clamp_power_box_for_region(geom: Any) -> tuple[float, float, float, float]:
+    """Center a <= 8 deg x 8 deg bounding box inside India for NASA POWER Regional NetCDF queries."""
+    minx, miny, maxx, maxy = (float(v) for v in geom.bounds)
+    if (maxx - minx) <= 9.5 and (maxy - miny) <= 9.5:
+        return round(miny, 2), round(maxy, 2), round(minx, 2), round(maxx, 2)
+    cent = geom.centroid
+    cx, cy = float(cent.x), float(cent.y)
+    return round(cy - 4.0, 2), round(cy + 4.0, 2), round(cx - 4.0, 2), round(cx + 4.0, 2)
+
+
+@app.post("/api/acquisition/download")
+async def acquisition_download_endpoint(req: DownloadRequest) -> dict[str, Any]:
+    """Run guarded dataset acquisition, structural validation, QC, and real India polygon extraction."""
+    entry = get_dataset_by_id(req.dataset_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"Unknown dataset_id '{req.dataset_id}'.")
+
+    try:
+        s_norm, e_norm = validate_temporal_window(req.start_date, req.end_date)
+        geom, region_meta = load_region_polygon(req.region_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    s_dt = parse_iso_date(s_norm)
+    e_dt = parse_iso_date(e_norm)
+    months_spanned = max(1, (e_dt.year - s_dt.year) * 12 + (e_dt.month - s_dt.month) + 1)
+
+    if (months_spanned > 12 or req.max_granules > 12) and not req.confirm_large_download:
+        est_granules = min(months_spanned, req.max_granules)
+        return {
+            "status": "confirmation_required",
+            "dataset_id": req.dataset_id,
+            "region_id": region_meta["region_id"],
+            "estimated_months": months_spanned,
+            "estimated_granules": est_granules,
+            "estimated_size_mb": round(est_granules * 12.0, 1),
+            "message": (
+                f"Requested range spans {months_spanned} months (up to {req.max_granules} granules). "
+                "Set confirm_large_download=true to proceed with large archive retrieval."
+            ),
+        }
+
+    # Path A: Live Unauthenticated NASA POWER Regional NetCDF Download + Validation + QC + Polygon Masking
+    if entry["dataset_id"] == "NASA_POWER_AG":
+        var_name = (req.variable or "T2M").upper()
+        if var_name not in entry["variable_names"]:
+            var_name = "T2M"
+        lat_min, lat_max, lon_min, lon_max = _clamp_power_box_for_region(geom)
+        raw_file = get_raw_path(
+            entry["domain"],
+            var_name,
+            "NASA_POWER",
+            f"POWER_Regional_{region_meta['region_id']}_{s_dt.year}_{e_dt.year}_{var_name}.nc",
+        )
+        dl_res = await download_power_regional_netcdf(
+            parameters=[var_name],
+            latitude_min=lat_min,
+            latitude_max=lat_max,
+            longitude_min=lon_min,
+            longitude_max=lon_max,
+            start_year=s_dt.year,
+            end_year=e_dt.year,
+            dest_path=raw_file,
+            community="AG",
+        )
+        if dl_res.get("status") not in ("downloaded", "skipped_existing"):
+            return {
+                "status": dl_res.get("status", "failed"),
+                "dataset_id": entry["dataset_id"],
+                "auth_required": False,
+                "download": dl_res,
+                "message": dl_res.get("error", "NASA POWER Regional NetCDF download failed."),
+            }
+
+        val_report = validate_file(raw_file, expected_format="NETCDF")
+        qc_report = apply_quality_control(
+            raw_file,
+            dataset_id=entry["dataset_id"],
+            domain=entry["domain"],
+            variable_name=var_name,
+        )
+        subset_result = None
+        if qc_report.validated_file_path and Path(qc_report.validated_file_path).exists():
+            with xr.open_dataset(qc_report.validated_file_path) as vds:
+                # If polygon is country-wide and POWER box was clamped around centroid, mask by full polygon cleanly
+                target_region_for_subset = region_meta["region_id"]
+                subset_result = extract_polygon_subset(
+                    ds=vds,
+                    variable_name=var_name,
+                    region_id=target_region_for_subset,
+                    output_stem=f"POWER_{var_name}_{target_region_for_subset}_{s_dt.year}_{e_dt.year}",
+                )
+
+        return {
+            "status": "completed",
+            "dataset_id": entry["dataset_id"],
+            "retrieval_mode": "live_nasa_power_regional_netcdf",
+            "auth_required": False,
+            "bounding_box_requested": [lon_min, lat_min, lon_max, lat_max],
+            "download": dl_res,
+            "validation": val_report.model_dump(),
+            "qc": qc_report.model_dump(),
+            "spatial_subset": subset_result,
+        }
+
+    # Path B: Copernicus CDS Datasets
+    auth = get_auth_diagnostics()
+    if entry["auth_provider"] == "Copernicus CDS API":
+        return {
+            "status": "auth_required" if not auth["copernicus_configured"] else "ready_via_cds_client",
+            "dataset_id": entry["dataset_id"],
+            "auth_required": not auth["copernicus_configured"],
+            "auth_status": auth,
+            "message": (
+                "Copernicus CDS API requires ~/.cdsapirc or CDSAPI_KEY before downloading ERA5/CAMS NetCDF archives."
+                if not auth["copernicus_configured"]
+                else "Copernicus CDS credentials detected; invoke backend.acquisition.copernicus_client.download_cds_dataset."
+            ),
+        }
+
+    # Path C: NASA Earthdata / CMR Datasets
+    concept = entry.get("collection_concept_id")
+    granules: list[dict[str, Any]] = []
+    if concept:
+        bbox = geom.bounds
+        try:
+            granules = await search_granules(
+                collection_concept_id=concept,
+                start_date=s_norm,
+                end_date=e_norm,
+                bounding_box=(float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])),
+                page_size=min(20, req.max_granules),
+                max_pages=1,
+            )
+        except Exception:
+            granules = []
+
+    if not auth["earthdata_authenticated"]:
+        pilot_nc = get_raw_path("atmospheric", "CO", "MOPITT", "MOP03JM_202401_202403_India_pilot.nc")
+        pilot_inspection = None
+        if entry["dataset_id"] == "MOP03JM" and pilot_nc.exists():
+            val_p = validate_file(pilot_nc, expected_format="NETCDF")
+            qc_p = apply_quality_control(pilot_nc, dataset_id="MOP03JM", domain="atmospheric", variable_name="CO_Total_Column")
+            sub_p = None
+            if qc_p.validated_file_path:
+                with xr.open_dataset(qc_p.validated_file_path) as pds:
+                    try:
+                        sub_p = extract_polygon_subset(
+                            ds=pds,
+                            variable_name="CO_Total_Column",
+                            region_id=region_meta["region_id"],
+                            output_stem=f"MOP03JM_CO_{region_meta['region_id']}_pilot",
+                        )
+                    except ValueError:
+                        sub_p = None
+            pilot_inspection = {
+                "retrieval_mode": "pilot_cmr_fixture_due_to_missing_edl_auth",
+                "validation": val_p.model_dump(),
+                "qc": qc_p.model_dump(),
+                "spatial_subset": sub_p,
+            }
+
+        return {
+            "status": "auth_required",
+            "dataset_id": entry["dataset_id"],
+            "auth_required": True,
+            "auth_status": auth,
+            "cmr_granules_discovered": len(granules),
+            "granules": granules[: req.max_granules],
+            "pilot_inspection": pilot_inspection,
+            "message": (
+                f"NASA CMR discovered {len(granules)} real granule(s) for {entry['dataset_id']}, "
+                "but protected granule download requires NASA Earthdata Login (EARTHDATA_TOKEN or ~/.netrc)."
+            ),
+        }
+
+    # Authenticated CMR download path
+    selected = granules[: req.max_granules]
+    if not selected:
+        return {
+            "status": "no_granules_found",
+            "dataset_id": entry["dataset_id"],
+            "auth_required": False,
+            "message": f"No CMR granules matched {entry['dataset_id']} in window {s_norm} to {e_norm}.",
+        }
+
+    dl_results = await download_granules_parallel(
+        dataset_id=entry["dataset_id"],
+        collection_concept_id=concept,
+        variable_code=entry["variable_code"],
+        domain=entry["domain"],
+        source_tag=entry["dataset_id"],
+        region_id=region_meta["region_id"],
+        start_date=s_norm,
+        end_date=e_norm,
+        granules=selected,
+    )
+    validations = []
+    for item in dl_results:
+        fpath = item.get("file_path")
+        if fpath and Path(fpath).exists() and item.get("status") in ("downloaded", "skipped_existing", "skipped_duplicate"):
+            validations.append(validate_file(Path(fpath)).model_dump())
+
+    return {
+        "status": "completed",
+        "dataset_id": entry["dataset_id"],
+        "auth_required": False,
+        "granules_requested": len(selected),
+        "downloads": dl_results,
+        "validations": validations,
+    }
 
 
 if __name__ == "__main__":

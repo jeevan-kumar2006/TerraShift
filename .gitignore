@@ -21,3 +21,34 @@ frontend/.vite/
 # IDE / OS
 .DS_Store
 Thumbs.db
+
+# Scientific Data Archives & Binary Outputs (keep boundaries and metadata CSV/JSON)
+data/raw/*
+!data/raw/**/.gitkeep
+data/validated/*
+!data/validated/**/.gitkeep
+data/processed/*
+!data/processed/**/.gitkeep
+*.nc
+*.nc4
+*.he5
+*.h5
+*.hdf
+*.tif
+*.tiff
+*.zarr/
+*.part
+
+# Runtime Logs
+logs/**/*.log
+logs/**/*.json
+logs/**/*.txt
+
+# Credentials (never commit)
+.netrc
+_netrc
+.cdsapirc
+.dodsrc
+.edl_token
+*.pem
+*.key

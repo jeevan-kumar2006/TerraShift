@@ -8,6 +8,7 @@ import {
   ExternalLink,
   FileText,
   Globe2,
+  HardDrive,
   HelpCircle,
   Home,
   LineChart,
@@ -28,6 +29,7 @@ import DossierModal from "./DossierModal";
 import HomePage, { type NavSection } from "./HomePage";
 import StatsDashboard from "./StatsDashboard";
 import { AboutView, HelpGuideView } from "./AboutAndHelp";
+import DataAcquisitionView from "./DataAcquisitionView";
 import type {
   GeoPoint,
   InvestigateResponse,
@@ -459,6 +461,7 @@ export default function App() {
   const navItems: { id: NavSection; label: string; icon: typeof Home }[] = [
     { id: "home", label: "Mission control", icon: Home },
     { id: "explore", label: "Explore signals", icon: Compass },
+    { id: "acquisition", label: "Data acquisition", icon: HardDrive },
     { id: "analysis", label: "Trend lab", icon: LineChart },
     { id: "results", label: "Evidence", icon: BarChart3 },
     { id: "about", label: "About TerraShift", icon: Database },
@@ -1152,12 +1155,14 @@ export default function App() {
           )
         )}
 
+        {activeSection === "acquisition" && <DataAcquisitionView apiBase={API_BASE} />}
+
         {activeSection === "about" && <AboutView onNavigate={handleNavigate} />}
 
         {activeSection === "help" && <HelpGuideView onNavigate={handleNavigate} />}
 
         {/* Detective Brief Summary Strip */}
-        {result && activeSection !== "home" && activeSection !== "results" && (
+        {result && activeSection !== "home" && activeSection !== "results" && activeSection !== "acquisition" && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-xs text-slate-300">
             <div className="max-w-4xl">
               <div className="flex flex-wrap items-center gap-2">
