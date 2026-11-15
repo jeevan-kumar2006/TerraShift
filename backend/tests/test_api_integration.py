@@ -108,7 +108,7 @@ def test_validation_errors_structured_format(client):
 
 def test_cases_detail_with_custom_window(client):
     """Verify GET /api/cases/{case_id} supports window slicing query params."""
-    resp = client.get("/api/cases/case_1_enso?start_year=1995&end_year=2015")
+    resp = client.get("/api/cases/case_1_monsoon?start_year=1995&end_year=2015")
     assert resp.status_code == 200
     data = resp.json()
     req = data["request"]

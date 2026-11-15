@@ -14,13 +14,14 @@ export function AboutView({ onNavigate }: AboutViewProps) {
           <span className="text-xs font-bold uppercase tracking-wider">About TerraShift</span>
         </div>
         <h2 className="mt-2 text-2xl font-extrabold text-white">
-          Be An Earth System Trend Detective!
+          India Earth System Trend Detective
         </h2>
         <p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-300">
-          TerraShift was built for the NASA Space Apps Challenge to make multi-decade Earth observation
-          time-series analysis accessible to students, citizen scientists, and researchers alike. Instead of
-          showing raw, noisy charts without context, TerraShift combines real NASA and space agency partner
-          datasets with transparent, peer-reviewed statistical methods.
+          TerraShift was built for the NASA Space Apps Challenge with an exclusive geographical focus
+          on India (6.0°N–37.5°N, 68.0°E–97.5°E). It makes multi-decade Earth observation time-series
+          analysis accessible across India&apos;s physiographic regions—from the Himalayas and
+          Indo-Gangetic Plains to the Thar Desert, Western Ghats, and coastal deltas—using transparent,
+          peer-reviewed statistical methods.
         </p>
 
         <div className="mt-5 flex flex-wrap gap-3">
@@ -56,12 +57,12 @@ export function AboutView({ onNavigate }: AboutViewProps) {
             </li>
             <li>
               <strong className="text-cyan-300">NASA CMR &amp; AppEEARS Discovery:</strong> Live collection
-              and product catalog discovery for SWOT, SeaWiFS, MODIS, GPM, and GLDAS.
+              and product catalog discovery for MODIS, GPM, SMAP, GRACE-FO, AIRS, Landsat, and ECOSTRESS over India.
             </li>
             <li>
-              <strong className="text-emerald-300">CSA (Canadian Space Agency) &amp; Geo.ca:</strong> Live
-              MSC GeoMet climate/hydrometric station discovery alongside RADARSAT Constellation Mission (RCM)
-              and SWOT mission context.
+              <strong className="text-emerald-300">IMD &amp; ISRO / MOSDAC Climatological Context:</strong>{" "}
+              Four-season Indian Meteorological Department (JF, MAM, JJAS, OND) framing and 10 Indian
+              physiographic regions alongside NASA satellite &amp; MERRA-2 reanalysis records.
             </li>
             <li>
               <strong className="text-indigo-300">NASA Giovanni, NOAA CDO &amp; KNMI Climate Explorer:</strong>{" "}

@@ -30,6 +30,7 @@ import HomePage, { type NavSection } from "./HomePage";
 import StatsDashboard from "./StatsDashboard";
 import { AboutView, HelpGuideView } from "./AboutAndHelp";
 import DataAcquisitionView from "./DataAcquisitionView";
+import IndiaRegionalView from "./IndiaRegionalView";
 import type {
   GeoPoint,
   InvestigateResponse,
@@ -40,38 +41,38 @@ import type {
 
 const DETECTIVE_QUESTIONS: { question: string; parameter: string; hint: string }[] = [
   {
-    question: "Where is warming fastest?",
+    question: "Where in India is warming fastest?",
     parameter: "T2M",
-    hint: "MERRA-2 / AIRS / CSA GeoMet 2m Air Temp (°C)",
+    hint: "Himalayas vs Peninsular India · MERRA-2 / AIRS 2m Air Temp (°C)",
   },
   {
-    question: "Where is drought worsening?",
+    question: "Where is soil moisture drying across India?",
     parameter: "GWETROOT",
-    hint: "GLDAS / SMAP / GES DISC Root-Zone Soil Moisture",
+    hint: "Indo-Gangetic Plains vs Thar Desert · SMAP / GLDAS Root-Zone Wetness",
   },
   {
-    question: "Where is rainfall accelerating?",
+    question: "Where is monsoon rainfall shifting?",
     parameter: "PRECTOTCORR",
-    hint: "GPM / MERRA-2 / Giovanni Corrected Precipitation",
+    hint: "Western Ghats vs Deccan Rain Shadow · GPM / MERRA-2 Precipitation",
   },
   {
-    question: "Where are forest canopies drying?",
+    question: "Where is deep profile moisture changing?",
     parameter: "GWETPROF",
-    hint: "MODIS NDVI / AppEEARS / GLDAS Deep Soil Wetness",
+    hint: "Bengal Delta vs Punjab Basin · MODIS / GRACE-FO / GLDAS Context",
   },
   {
-    question: "Where is atmospheric humidity rising?",
+    question: "Where is atmospheric humidity rising in India?",
     parameter: "QV2M",
-    hint: "MERRA-2 2m Specific Humidity (g/kg)",
+    hint: "Coastal & Monsoon Belts · MERRA-2 2m Specific Humidity (g/kg)",
   },
 ];
 
 function buildSampleGiovanniCsv(): string {
   const rows = [
     "# SYNTHETIC_DEMO_DATA: true",
-    "# WARNING: Synthetic demonstration data generated for format testing only — NOT real NASA Giovanni or SeaWiFS observations.",
+    "# WARNING: Synthetic demonstration data generated for format testing only — NOT real NASA Giovanni or MODIS observations.",
     "# Format: NASA Giovanni Area-Averaged Time Series CSV",
-    "# Demo Region: Mississippi River Delta Plume (29.15N, 89.25W)",
+    "# Demo Region: Sundarbans & Lower Bengal Delta, India (22.00N, 88.80E)",
     "time,chlorophyll_a_mg_m3",
   ];
   for (let yr = 1998; yr <= 2024; yr++) {
@@ -88,9 +89,9 @@ function buildSampleGiovanniCsv(): string {
 function buildSampleKnmiDat(): string {
   const rows = [
     "# SYNTHETIC_DEMO_DATA: true",
-    "# WARNING: Synthetic demonstration data generated for format testing only — NOT real KNMI or CSA hydrometric observations.",
+    "# WARNING: Synthetic demonstration data generated for format testing only — NOT real IMD or NASA POWER observations.",
     "# Format: KNMI Climate Explorer Monthly Table (.dat)",
-    "# Demo Station: Mackenzie River / Beaufort Delta Benchmark (68.80N, 134.40W)",
+    "# Demo Station: Leh / Upper Indus Himalayan Benchmark, India (34.15N, 77.58E)",
   ];
   for (let yr = 1995; yr <= 2024; yr++) {
     const vals: string[] = [];
@@ -461,6 +462,7 @@ export default function App() {
   const navItems: { id: NavSection; label: string; icon: typeof Home }[] = [
     { id: "home", label: "Mission control", icon: Home },
     { id: "explore", label: "Explore signals", icon: Compass },
+    { id: "india", label: "India seasons", icon: Globe2 },
     { id: "acquisition", label: "Data acquisition", icon: HardDrive },
     { id: "analysis", label: "Trend lab", icon: LineChart },
     { id: "results", label: "Evidence", icon: BarChart3 },
@@ -1156,6 +1158,19 @@ export default function App() {
         )}
 
         {activeSection === "acquisition" && <DataAcquisitionView apiBase={API_BASE} />}
+
+        {activeSection === "india" && (
+          <IndiaRegionalView
+            apiBase={API_BASE}
+            cases={cases}
+            onSelectRegionForMap={(lat, lon, name, paramCode) => {
+              setPointA({ lat, lon, name });
+              setParameter(paramCode);
+              setFitVersion((v) => v + 1);
+              handleNavigate("analysis");
+            }}
+          />
+        )}
 
         {activeSection === "about" && <AboutView onNavigate={handleNavigate} />}
 

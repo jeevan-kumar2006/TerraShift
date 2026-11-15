@@ -42,13 +42,27 @@ from nasa_service import (
     PARAMETER_METADATA,
     build_series_provenance,
     compute_bounding_box,
+    INDIA_BOUNDS,
     fetch_nasa_monthly,
     fetch_partner_intel,
     get_parameter_metadata,
     get_preset_case_series,
+    is_within_india_bounds,
     list_preset_cases,
     parse_external_timeseries,
 )
+try:
+    from india_analytics import (
+        INDIA_PHYSIOGRAPHIC_REGIONS,
+        INDIA_SEASONS,
+        analyze_india_seasons,
+    )
+except ImportError:
+    from backend.india_analytics import (
+        INDIA_PHYSIOGRAPHIC_REGIONS,
+        INDIA_SEASONS,
+        analyze_india_seasons,
+    )
 from stats_engine import analyze_series
 import xarray as xr
 
@@ -849,6 +863,17 @@ def analyze_endpoint(req: AnalyzeRequest) -> dict[str, Any]:
 @app.post("/api/investigate", response_model=InvestigateResponseModel)
 async def investigate_endpoint(req: InvestigateRequest) -> dict[str, Any]:
     """Hybrid NASA POWER fetch + STL & non-parametric trend investigation."""
+    if not is_within_india_bounds(req.primary_point.lat, req.primary_point.lon):
+        raise HTTPException(
+            status_code=422,
+            detail="TerraShift scope is restricted exclusively to India (6.0°N–37.5°N, 68.0°E–97.5°E).",
+        )
+    if req.comparison_point is not None:
+        if not is_within_india_bounds(req.comparison_point.lat, req.comparison_point.lon):
+            raise HTTPException(
+                status_code=422,
+                detail="TerraShift scope is restricted exclusively to India (6.0°N–37.5°N, 68.0°E–97.5°E).",
+            )
     param = req.parameter.upper()
     primary_data: dict[str, Any] | None = None
     comp_data: dict[str, Any] | None = None
@@ -1322,6 +1347,189 @@ async def acquisition_download_endpoint(req: DownloadRequest) -> dict[str, Any]:
         "granules_requested": len(selected),
         "downloads": dl_results,
         "validations": validations,
+    }
+
+
+class IndiaSeasonalAnalysisRequest(BaseModel):
+    case_id: str | None = None
+    lat: float | None = None
+    lon: float | None = None
+    parameter: str = "T2M"
+    start_year: int = 1981
+    end_year: int = 2025
+    baseline_start: int = 1991
+    baseline_end: int = 2020
+    timestamps: list[str] | None = None
+    values: list[float | None] | None = None
+
+
+@app.get("/api/india/regions")
+def get_india_regions() -> dict[str, Any]:
+    """Return India geographical bounds, IMD seasonal definitions, and physiographic regions."""
+    return {
+        "bounds": INDIA_BOUNDS,
+        "seasons": {s["code"]: s for s in INDIA_SEASONS},
+        "physiographic_regions": [
+            {
+                "id": r["region_id"],
+                "name": r["name"],
+                "lat": r["representative_point"]["lat"],
+                "lon": r["representative_point"]["lon"],
+                "focus": r["climate_profile"],
+            }
+            for r in INDIA_PHYSIOGRAPHIC_REGIONS
+        ],
+    }
+
+
+@app.get("/api/india/boundaries-geojson")
+def get_india_boundaries_geojson() -> dict[str, Any]:
+    """Serve the India states GeoJSON boundary file for frontend map overlays."""
+    repo_root = Path(__file__).resolve().parent.parent
+    geojson_path = repo_root / "data" / "boundaries" / "states" / "india_states.geojson"
+    if not geojson_path.exists():
+        geojson_path = repo_root / "data" / "boundaries" / "india" / "india_outline.geojson"
+    if not geojson_path.exists():
+        raise HTTPException(status_code=404, detail="India boundary GeoJSON file not found.")
+    with geojson_path.open("r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+@app.post("/api/india/seasonal-analysis")
+async def india_seasonal_analysis_endpoint(req: IndiaSeasonalAnalysisRequest) -> dict[str, Any]:
+    """Run India-specific 4-season (JF, MAM, JJAS, OND) and annual anomaly trend analysis."""
+    param = req.parameter.upper()
+    series_meta: dict[str, Any] = {}
+
+    if req.timestamps is not None and req.values is not None:
+        if len(req.timestamps) != len(req.values):
+            raise HTTPException(status_code=422, detail="timestamps and values must have equal length.")
+        timestamps = req.timestamps
+        values = req.values
+        series_meta = {
+            "source_mode": "custom_series",
+            "parameter": param,
+            "location": "Custom India Series",
+        }
+    elif req.case_id:
+        case_payload = get_preset_case_series(req.case_id, req.start_year, req.end_year)
+        if not case_payload:
+            raise HTTPException(status_code=404, detail=f"Preset case '{req.case_id}' not found.")
+        case_meta = case_payload["case"]
+        primary = case_payload["primary"]
+        timestamps = primary["timestamps"]
+        values = primary["values"]
+        param = case_meta.get("parameter", param)
+        series_meta = {
+            "case_id": req.case_id,
+            "case_title": case_meta.get("title"),
+            "location": case_meta.get("primary_point", {}).get("name", req.case_id),
+            "lat": primary.get("lat"),
+            "lon": primary.get("lon"),
+            "parameter": param,
+            "units": case_meta.get("unit"),
+            "source_mode": primary.get("data_status", "cache"),
+        }
+    elif req.lat is not None and req.lon is not None:
+        if not is_within_india_bounds(req.lat, req.lon):
+            raise HTTPException(
+                status_code=422,
+                detail="TerraShift scope is restricted exclusively to India (6.0°N–37.5°N, 68.0°E–97.5°E).",
+            )
+        fetched = await fetch_nasa_monthly(
+            lat=req.lat,
+            lon=req.lon,
+            parameter=param,
+            start_year=req.start_year,
+            end_year=req.end_year,
+        )
+        if not fetched or not fetched.get("timestamps"):
+            raise HTTPException(status_code=502, detail="Failed to retrieve NASA POWER data for India coordinates.")
+        timestamps = fetched["timestamps"]
+        values = fetched["values"]
+        series_meta = {
+            "location": fetched.get("location") or f"{req.lat:.2f}°N, {req.lon:.2f}°E",
+            "lat": req.lat,
+            "lon": req.lon,
+            "parameter": param,
+            "units": fetched.get("units"),
+            "source_mode": fetched.get("source_mode", "live"),
+        }
+    else:
+        raise HTTPException(
+            status_code=422,
+            detail="Provide either (timestamps & values), case_id, or (lat & lon) within India.",
+        )
+
+    analysis = analyze_india_seasons(
+        timestamps,
+        values,
+        baseline_start=req.baseline_start,
+        baseline_end=req.baseline_end,
+    )
+    return {
+        "meta": series_meta,
+        "analysis": analysis,
+    }
+
+
+@app.get("/api/india/regional-comparison")
+async def india_regional_comparison(
+    start_year: int = 1990,
+    end_year: int = 2025,
+) -> dict[str, Any]:
+    """Compute real seasonal & long-term trend comparison across all cached India case locations."""
+    cases = list_preset_cases()
+    rows: list[dict[str, Any]] = []
+    for case in cases:
+        cid = case["case_id"]
+        payload = get_preset_case_series(cid, start_year, end_year)
+        if not payload:
+            continue
+        case_meta = payload["case"]
+        for role_key, point_key in (("primary", "primary_point"), ("comparison", "comparison_point")):
+            loc_data = payload.get(role_key)
+            if not loc_data or not loc_data.get("timestamps"):
+                continue
+            ts = loc_data["timestamps"]
+            vals = loc_data["values"]
+            seasonal = analyze_india_seasons(ts, vals, baseline_start=1991, baseline_end=2020)
+            overall = analyze_series(ts, vals)
+            p_stats = overall.get("primary_stats", {})
+            rows.append({
+                "case_id": cid,
+                "case_title": case_meta.get("title"),
+                "role": "primary" if role_key == "primary" else "compare",
+                "location": case_meta.get(point_key, {}).get("name", cid),
+                "lat": loc_data.get("lat"),
+                "lon": loc_data.get("lon"),
+                "parameter": case_meta.get("parameter"),
+                "units": case_meta.get("unit"),
+                "source_mode": loc_data.get("data_status", "cache"),
+                "n_months": seasonal.get("eda", {}).get("n_valid", len(ts)),
+                "mean_value": seasonal.get("eda", {}).get("mean"),
+                "std_value": seasonal.get("eda", {}).get("std"),
+                "sen_slope_per_decade": p_stats.get("sens_slope_per_decade"),
+                "mk_p_value": p_stats.get("p_value"),
+                "mk_significant": p_stats.get("is_significant"),
+                "seasons": {
+                    s_key: {
+                        "name": s_val.get("name"),
+                        "sen_slope_per_decade": s_val.get("sen_slope_per_decade"),
+                        "ols_slope_per_decade": s_val.get("ols_slope_per_decade"),
+                        "mk_p_value": s_val.get("mk_p_value"),
+                        "holm_adjusted_p": s_val.get("holm_adjusted_p"),
+                        "significant_holm": s_val.get("significant_holm"),
+                    }
+                    for s_key, s_val in (seasonal.get("seasons") or {}).items()
+                },
+            })
+    return {
+        "start_year": start_year,
+        "end_year": end_year,
+        "baseline_period": "1991-2020",
+        "count": len(rows),
+        "rows": rows,
     }
 
 

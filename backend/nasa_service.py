@@ -36,6 +36,22 @@ POWER_COMMUNITY_MAP: dict[str, str] = {
 }
 MAX_FALLBACK_RADIUS_KM = float(os.environ.get("MAX_FALLBACK_RADIUS_KM", "500.0"))
 
+# Exclusive geographical bounds for India-focused analysis
+INDIA_BOUNDS: dict[str, float] = {
+    "lat_min": 6.0,
+    "lat_max": 37.5,
+    "lon_min": 68.0,
+    "lon_max": 97.5,
+}
+
+
+def is_within_india_bounds(lat: float, lon: float) -> bool:
+    """Return True if coordinates fall within India's geographical domain (6.0N-37.5N, 68.0E-97.5E)."""
+    return (
+        INDIA_BOUNDS["lat_min"] <= float(lat) <= INDIA_BOUNDS["lat_max"]
+        and INDIA_BOUNDS["lon_min"] <= float(lon) <= INDIA_BOUNDS["lon_max"]
+    )
+
 # In-memory cache for AppEEARS catalog so repeated lookups are instant
 _APPEEARS_CACHE: list[dict[str, Any]] | None = None
 
@@ -128,76 +144,76 @@ PARAMETER_METADATA: dict[str, dict[str, str]] = {
 
 PRESET_CASE_SPECS: list[dict[str, Any]] = [
     {
-        "case_id": "case_1_enso",
-        "title": "Case 1: ENSO Rainfall Seesaw",
-        "short_title": "ENSO Seesaw",
-        "mechanism_teaser": "Pacific Walker Circulation shifts are associated with contrasting rainfall anomalies between coastal Peru and Maritime Continent Indonesia.",
+        "case_id": "case_1_monsoon",
+        "title": "Case 1: Western Ghats Orographic Monsoon vs Rain-Shadow Deccan",
+        "short_title": "Western Ghats vs Deccan",
+        "mechanism_teaser": "Arabian Sea Southwest Monsoon moisture uplift along the Western Ghats contrasts sharply with semi-arid rain-shadow conditions in Marathwada (Deccan Plateau).",
         "parameter": "PRECTOTCORR",
-        "mission_label": "NASA POWER (MERRA-2) · Ref: GPM / Giovanni",
-        "primary_point": {"name": "Northern Peru Coast", "lat": -5.19, "lon": -80.63},
-        "comparison_point": {"name": "East Kalimantan, Indonesia", "lat": -1.5, "lon": 116.5},
+        "mission_label": "NASA POWER (MERRA-2) · Ref: GPM IMERG / IMD",
+        "primary_point": {"name": "Thrissur / Kerala Coast (Western Ghats)", "lat": 10.52, "lon": 76.21},
+        "comparison_point": {"name": "Aurangabad / Marathwada (Deccan)", "lat": 19.88, "lon": 75.34},
         "default_window": [1990, 2025],
-        "data_source": "NASA POWER (MERRA-2 Assimilated Precipitation; GPM/Giovanni contextual ref)",
+        "data_source": "NASA POWER (MERRA-2 Assimilated Precipitation; GPM IMERG / IMD contextual ref)",
     },
     {
-        "case_id": "case_2_dipole",
-        "title": "Case 2: North American Hydrological Dipole",
-        "short_title": "Hydrological Dipole",
-        "mechanism_teaser": "Subtropical dry-belt expansion and shifting storm tracks coincide with opposite model-derived soil wetness trajectories across North America.",
+        "case_id": "case_2_himalaya",
+        "title": "Case 2: Western Himalayan Warming vs Coromandel Coast",
+        "short_title": "Himalaya vs Coast",
+        "mechanism_teaser": "High-elevation snow-albedo feedbacks in Ladakh/Western Himalaya are compared against maritime thermal buffering along the Coromandel Coast.",
+        "parameter": "T2M",
+        "mission_label": "NASA POWER (MERRA-2) · Ref: MODIS LST / AIRS",
+        "primary_point": {"name": "Leh / Ladakh (Western Himalaya)", "lat": 34.15, "lon": 77.58},
+        "comparison_point": {"name": "Chennai / Coromandel Coast", "lat": 13.08, "lon": 80.27},
+        "default_window": [1990, 2025],
+        "data_source": "NASA POWER (MERRA-2 M2TMNXSLV 2m Air Temp; MODIS/AIRS contextual ref)",
+    },
+    {
+        "case_id": "case_3_igp_thar",
+        "title": "Case 3: Indo-Gangetic Plains vs Thar Desert Root-Zone Moisture",
+        "short_title": "IGP vs Thar Moisture",
+        "mechanism_teaser": "Intensive alluvial cultivation in the central Indo-Gangetic Plains contrasts with hyper-arid moisture deficits across the Thar Desert.",
         "parameter": "GWETROOT",
-        "mission_label": "NASA POWER (MERRA-2 Land) · Ref: GLDAS / SMAP",
-        "primary_point": {"name": "US Southwest / Colorado Basin", "lat": 34.5, "lon": -108.0},
-        "comparison_point": {"name": "Upper Midwest Basin", "lat": 46.0, "lon": -94.0},
+        "mission_label": "NASA POWER (MERRA-2 Land) · Ref: SMAP / GLDAS / GRACE",
+        "primary_point": {"name": "Lucknow / Central Indo-Gangetic Plain", "lat": 26.85, "lon": 80.95},
+        "comparison_point": {"name": "Jaisalmer / Thar Desert", "lat": 26.91, "lon": 70.91},
         "default_window": [1990, 2025],
-        "data_source": "NASA POWER (MERRA-2 M2TMNXLND Model Hydrology; GLDAS/SMAP contextual ref)",
+        "data_source": "NASA POWER (MERRA-2 M2TMNXLND Root-Zone Wetness; SMAP/GLDAS contextual ref)",
     },
     {
-        "case_id": "case_3_arctic",
-        "title": "Case 3: Polar Amplification vs Atlantic Cold Blob",
-        "short_title": "Arctic Amplification",
-        "mechanism_teaser": "Sea-ice albedo feedback accelerates Svalbard warming while subpolar Atlantic overturning variability moderates regional warming.",
-        "parameter": "T2M",
-        "mission_label": "NASA POWER (MERRA-2) · Ref: AIRS / KNMI",
-        "primary_point": {"name": "Svalbard Archipelago", "lat": 78.22, "lon": 15.63},
-        "comparison_point": {"name": "Subpolar North Atlantic", "lat": 54.0, "lon": -32.0},
-        "default_window": [1990, 2025],
-        "data_source": "NASA POWER (MERRA-2 M2TMNXSLV Reanalysis Surface Air Temp)",
-    },
-    {
-        "case_id": "case_4_amazon",
-        "title": "Case 4: Amazon Canopy Moisture Stress",
-        "short_title": "Amazon Canopy Stress",
-        "mechanism_teaser": "Land-cover change and weakened moisture recycling accompany faster model-derived deep soil drying along the southeastern margin than in the central core.",
-        "parameter": "GWETPROF",
-        "mission_label": "NASA POWER (MERRA-2 Land) · Ref: AppEEARS / MODIS",
-        "primary_point": {"name": "SE Amazon Deforestation Arc", "lat": -12.0, "lon": -55.0},
-        "comparison_point": {"name": "Central Amazon Core", "lat": -2.0, "lon": -64.0},
-        "default_window": [1990, 2025],
-        "data_source": "NASA POWER (MERRA-2 M2TMNXLND Profile Wetness; MODIS NDVI contextual ref)",
-    },
-    {
-        "case_id": "case_5_seawifs_coastal",
-        "title": "Case 5: River-Plume Coastal Runoff vs Offshore Gyre",
-        "short_title": "SeaWiFS Coastal Plume",
-        "mechanism_teaser": "Mississippi River coastal precipitation pulses and river discharge contrast with offshore open-Gulf variability (SeaWiFS NTRS 20090042747 methodology reference).",
+        "case_id": "case_4_northeast",
+        "title": "Case 4: Northeastern Monsoon Belt vs Central Indian Plateau",
+        "short_title": "Northeast vs Central Plateau",
+        "mechanism_teaser": "Bay of Bengal moisture convergence over the Meghalaya Hills contrasts with continental convective rainfall variability across the Central Indian Plateau.",
         "parameter": "PRECTOTCORR",
-        "mission_label": "NASA POWER (MERRA-2) · Ref: SeaWiFS NTRS",
-        "primary_point": {"name": "Mississippi River Delta Plume", "lat": 29.15, "lon": -89.25},
-        "comparison_point": {"name": "Offshore Gulf Loop Current", "lat": 25.0, "lon": -90.0},
+        "mission_label": "NASA POWER (MERRA-2) · Ref: GPM / TRMM / IMD",
+        "primary_point": {"name": "Shillong / Meghalaya (Northeast India)", "lat": 25.57, "lon": 91.89},
+        "comparison_point": {"name": "Nagpur / Central Indian Plateau", "lat": 21.15, "lon": 79.09},
         "default_window": [1990, 2025],
-        "data_source": "NASA POWER (MERRA-2 Precip; SeaWiFS Coastal Method Ref NTRS 20090042747)",
+        "data_source": "NASA POWER (MERRA-2 Precip; GPM IMERG / IMD Monsoon contextual ref)",
     },
     {
-        "case_id": "case_6_csa_swot_rcm",
-        "title": "Case 6: Canadian Cryosphere & Surface Water Shift",
-        "short_title": "CSA SWOT & RCM Arctic",
-        "mechanism_teaser": "High-latitude MERRA-2 air-temperature trends in the Mackenzie Delta are paired with live Canadian GeoMet station discovery and CSA RCM/SWOT mission context.",
+        "case_id": "case_5_heat_belt",
+        "title": "Case 5: Vidarbha Interior Heat Belt vs Eastern Ghats Coast",
+        "short_title": "Vidarbha vs Eastern Ghats",
+        "mechanism_teaser": "Pre-monsoon continental heating across Vidarbha and central India is contrasted with Bay of Bengal coastal moderation along Odisha and the Eastern Ghats.",
         "parameter": "T2M",
-        "mission_label": "NASA POWER (MERRA-2) + CSA GeoMet",
-        "primary_point": {"name": "Mackenzie Delta / Beaufort Coast, NT", "lat": 68.8, "lon": -134.4},
-        "comparison_point": {"name": "Great Lakes / St. Lawrence Corridor", "lat": 44.2, "lon": -76.5},
+        "mission_label": "NASA POWER (MERRA-2) · Ref: MODIS Terra / ECOSTRESS",
+        "primary_point": {"name": "Akola / Vidarbha (Central-Deccan)", "lat": 20.70, "lon": 77.00},
+        "comparison_point": {"name": "Bhubaneswar / Eastern Ghats Coast", "lat": 20.30, "lon": 85.82},
         "default_window": [1990, 2025],
-        "data_source": "NASA POWER (MERRA-2 T2M) + CSA GeoMet Station Discovery & SWOT/RCM Context",
+        "data_source": "NASA POWER (MERRA-2 M2TMNXSLV 2m Air Temp; MODIS LST contextual ref)",
+    },
+    {
+        "case_id": "case_6_delta_basin",
+        "title": "Case 6: Sundarbans Delta vs Upper Ganga-Indus Agricultural Basin",
+        "short_title": "Sundarbans vs Punjab Basin",
+        "mechanism_teaser": "Deltaic profile soil moisture dynamics in the Sundarbans are compared against irrigated alluvial plains in the upper Indus-Ganga agricultural belt.",
+        "parameter": "GWETPROF",
+        "mission_label": "NASA POWER (MERRA-2 Land) · Ref: GRACE-FO / ISRO MOSDAC",
+        "primary_point": {"name": "Sundarbans / Lower Bengal Delta", "lat": 22.00, "lon": 88.80},
+        "comparison_point": {"name": "Ludhiana / Upper Indus-Ganga Basin", "lat": 30.90, "lon": 75.85},
+        "default_window": [1990, 2025],
+        "data_source": "NASA POWER (MERRA-2 M2TMNXLND Profile Wetness; GRACE-FO/MOSDAC contextual ref)",
     },
 ]
 

@@ -17,6 +17,7 @@ import type { InvestigateResponse, PresetCaseMeta } from "./types";
 export type NavSection =
   | "home"
   | "explore"
+  | "india"
   | "acquisition"
   | "analysis"
   | "results"
@@ -34,8 +35,8 @@ const signalCards = [
   {
     index: "01",
     icon: Crosshair,
-    title: "Locate the signal",
-    description: "Drop a marker anywhere on Earth and define the variable worth investigating.",
+    title: "Locate the Indian signal",
+    description: "Drop a marker across India's 10 physiographic regions (6.0°N–37.5°N, 68.0°E–97.5°E) and choose a variable.",
   },
   {
     index: "02",
@@ -100,16 +101,16 @@ export default function HomePage({
         <div className="hero-copy">
           <div className="eyebrow eyebrow-light">
             <span className="eyebrow-mark" />
-            Orbital intelligence / 01
+            India Orbital Observatory / 01
           </div>
           <h1>
-            Read the signal
+            Read India&apos;s signal
             <br />
             <span>before it moves.</span>
           </h1>
           <p className="hero-lede">
-            TerraShift turns long-running NASA Earth observation into a clear, defensible view of
-            how the planet is changing.
+            TerraShift turns long-running NASA Earth observation over India into a clear, defensible
+            view of monsoon, Himalayan, and soil-moisture trends.
           </p>
           <div className="hero-actions">
             <button type="button" className="button button-primary" onClick={() => onNavigate("explore")}>

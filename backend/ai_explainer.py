@@ -105,52 +105,51 @@ def build_deterministic_brief(
             "(linear co-movement only; correlation alone does not prove physical causation or a teleconnection)."
         )
 
-    if case_id == "case_1_enso":
+    if case_id == "case_1_monsoon":
         mechanism = (
-            f"Hypothesis / Physical Context: Across {region_name} and {comparison_name or 'Maritime Continent Indonesia'}, "
-            "Pacific Walker Circulation shifts are associated with contrasting tropical moisture transport. "
-            "El Nino warm-pool displacements modulate coastal Peru convection and Indonesian monsoon rainfall, "
-            f"matching the observed diverging MERRA-2 precipitation slopes ({decade_rate:+.3f} vs "
-            f"{(comparison_slope_per_year or 0) * 10:+.3f} {meta['unit']}/decade).{corr_clause}"
+            f"Hypothesis / Physical Context: Across {region_name} and {comparison_name or 'Marathwada / Deccan'}, "
+            "orographic uplift of Southwest Monsoon (JJAS) moisture along the Western Ghats contrasts with leeward "
+            "rain-shadow drying across the interior Deccan Plateau, "
+            f"corresponding to MERRA-2 precipitation slopes of {decade_rate:+.3f} vs "
+            f"{(comparison_slope_per_year or 0) * 10:+.3f} {meta['unit']}/decade.{corr_clause}"
         )
-        reference = "NASA POWER (MERRA-2 M2TMNXFLX) · Context: NASA Earth Observatory / GPM ENSO Patterns"
-    elif case_id == "case_2_dipole":
+        reference = "NASA POWER (MERRA-2 M2TMNXFLX) · Context: GPM IMERG & IMD Gridded Rainfall"
+    elif case_id == "case_2_himalaya":
         mechanism = (
-            f"Hypothesis / Physical Context: In {region_name} ({band_label}), subtropical Hadley cell expansion "
-            f"and higher evaporative demand are consistent with model-derived root-zone wetness decline "
-            f"({decade_rate:+.4f} {meta['unit']}/decade), while shifting storm tracks coincide with wetting in "
-            f"{comparison_name or 'the Upper Midwest'} ({(comparison_slope_per_year or 0) * 10:+.4f} {meta['unit']}/decade).{corr_clause}"
+            f"Hypothesis / Physical Context: {region_name} ({lat:.1f}°N) exhibits elevation-dependent warming "
+            f"({decade_rate:+.2f} °C/decade), where snow-albedo feedbacks and clear-sky radiative forcing accelerate "
+            f"surface heating relative to maritime moderation along {comparison_name or 'the Coromandel Coast'}.{corr_clause}"
         )
-        reference = "NASA POWER (MERRA-2 M2TMNXLND) · Context: GLDAS/SMAP & GES DISC Hydrology"
-    elif case_id == "case_3_arctic":
+        reference = "NASA POWER (MERRA-2 M2TMNXSLV) · Context: MODIS Terra LST & AIRS"
+    elif case_id == "case_3_igp_thar":
         mechanism = (
-            f"Hypothesis / Physical Context: {region_name} ({lat:.1f}°N) exhibits rapid Arctic Amplification "
-            f"({decade_rate:+.2f} °C/decade), consistent with sea-ice albedo feedback exposing darker ocean/land surfaces. "
-            f"By contrast, subpolar Atlantic overturning variability near {comparison_name or 'the Subpolar North Atlantic'} "
-            f"is associated with muted surface warming.{corr_clause}"
+            f"Hypothesis / Physical Context: Across {region_name} vs {comparison_name or 'the Thar Desert'}, "
+            "monsoon moisture penetration, evapotranspiration demand, and alluvial water storage contrast sharply "
+            f"between cultivated Indo-Gangetic plains ({decade_rate:+.4f} {meta['unit']}/decade) and arid western sands "
+            f"({(comparison_slope_per_year or 0) * 10:+.4f} {meta['unit']}/decade).{corr_clause}"
         )
-        reference = "NASA POWER (MERRA-2 M2TMNXSLV) · Context: NASA GISS & KNMI Climate Explorer"
-    elif case_id == "case_4_amazon":
+        reference = "NASA POWER (MERRA-2 M2TMNXLND) · Context: SMAP L3, GLDAS Noah & GRACE-FO"
+    elif case_id == "case_4_northeast":
         mechanism = (
-            f"Hypothesis / Physical Context: Along {region_name}, land-cover change and weakened moisture recycling "
-            f"are hypothesized to amplify dry-season soil moisture stress ({decade_rate:+.4f} {meta['unit']}/decade) "
-            f"relative to {comparison_name or 'the Central Amazon Core'} ({(comparison_slope_per_year or 0) * 10:+.4f} {meta['unit']}/decade).{corr_clause}"
+            f"Hypothesis / Physical Context: {region_name} receives intense Bay of Bengal moisture convergence "
+            f"({decade_rate:+.3f} {meta['unit']}/decade) compared to continental convective rainfall variability across "
+            f"{comparison_name or 'the Central Indian Plateau'} ({(comparison_slope_per_year or 0) * 10:+.3f} {meta['unit']}/decade).{corr_clause}"
         )
-        reference = "NASA POWER (MERRA-2 M2TMNXLND) · Context: NASA AppEEARS MODIS NDVI & GLDAS"
-    elif case_id == "case_5_seawifs_coastal":
+        reference = "NASA POWER (MERRA-2 M2TMNXFLX) · Context: GPM IMERG, TRMM & IMD Monsoon Studies"
+    elif case_id == "case_5_heat_belt":
         mechanism = (
-            f"Hypothesis / Physical Context: In {region_name}, watershed precipitation and river runoff pulses drive "
-            f"strong seasonal coastal cycles ({decade_rate:+.3f} {meta['unit']}/decade) distinct from offshore variability in "
-            f"{comparison_name or 'the Offshore Gulf Loop Current'}.{corr_clause}"
+            f"Hypothesis / Physical Context: Interior continental heating in {region_name} "
+            f"({decade_rate:+.2f} °C/decade) drives intense pre-monsoon (MAM) heat anomalies compared against "
+            f"coastal thermal buffering along {comparison_name or 'the Eastern Ghats Coast'}.{corr_clause}"
         )
-        reference = "NASA POWER (MERRA-2 M2TMNXFLX) · Method Ref: NASA NTRS 20090042747 (SeaWiFS Coastal Time-Series)"
-    elif case_id == "case_6_csa_swot_rcm":
+        reference = "NASA POWER (MERRA-2 M2TMNXSLV) · Context: MODIS LST & ECOSTRESS"
+    elif case_id == "case_6_delta_basin":
         mechanism = (
-            f"Hypothesis / Physical Context: Across {region_name} ({lat:.1f}°N), high-latitude MERRA-2 air-temperature "
-            f"change ({decade_rate:+.2f} °C/decade) outpaces {comparison_name or 'the Great Lakes / St. Lawrence Corridor'} "
-            f"({(comparison_slope_per_year or 0) * 10:+.2f} °C/decade), consistent with cryosphere permafrost and ice-albedo feedbacks.{corr_clause}"
+            f"Hypothesis / Physical Context: Across {region_name} and {comparison_name or 'the Upper Indus-Ganga Basin'}, "
+            f"deltaic estuary moisture ({decade_rate:+.4f} {meta['unit']}/decade) contrasts with irrigated basin profile wetness "
+            f"({(comparison_slope_per_year or 0) * 10:+.4f} {meta['unit']}/decade), complementing GRACE-FO groundwater assessments.{corr_clause}"
         )
-        reference = "NASA POWER (MERRA-2 M2TMNXSLV) · Partner Context: CSA RCM, SWOT Mission & MSC GeoMet"
+        reference = "NASA POWER (MERRA-2 M2TMNXLND) · Context: GRACE-FO Mascon & ISRO MOSDAC"
     else:
         if param == "T2M":
             mechanism = (

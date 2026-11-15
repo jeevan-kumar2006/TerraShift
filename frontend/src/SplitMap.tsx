@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import L from "leaflet";
 import {
+  GeoJSON as LeafletGeoJSON,
   MapContainer,
   Marker,
   Polyline,
@@ -154,8 +155,8 @@ function MapClickHandler({
   useMapEvents({
     async click(e) {
       const wrapped = e.latlng.wrap();
-      const lat = Number(wrapped.lat.toFixed(3));
-      const lon = Number(wrapped.lng.toFixed(3));
+      const lat = Number(Math.min(37.5, Math.max(6.0, wrapped.lat)).toFixed(3));
+      const lon = Number(Math.min(97.5, Math.max(68.0, wrapped.lng)).toFixed(3));
       const resolvedName = await reverseGeocodeMapbox(lat, lon, mapboxToken);
       onSelectPoint(activeTarget, lat, lon, resolvedName);
     },
@@ -178,9 +179,9 @@ function ViewportController({
     if (fitVersion === 0) return;
     if (pointA && pointB) {
       const bounds = L.latLngBounds([pointA.lat, pointA.lon], [pointB.lat, pointB.lon]);
-      map.fitBounds(bounds.pad(0.35), { maxZoom: 5, animate: true, duration: 0.7 });
+      map.fitBounds(bounds.pad(0.35), { maxZoom: 6, animate: true, duration: 0.7 });
     } else if (pointA) {
-      map.flyTo([pointA.lat, pointA.lon], 4, { duration: 0.7 });
+      map.flyTo([pointA.lat, pointA.lon], 6, { duration: 0.7 });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitVersion]);
@@ -228,6 +229,20 @@ export default function SplitMap({
   const [mapboxError, setMapboxError] = useState<boolean>(false);
   const [tokenValidationError, setTokenValidationError] = useState<string | null>(null);
   const [mobileLegendOpen, setMobileLegendOpen] = useState<boolean>(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [indiaGeoJson, setIndiaGeoJson] = useState<any>(null);
+
+  useEffect(() => {
+    const apiBase = ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+    fetch(`${apiBase}/api/india/boundaries-geojson`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.type) setIndiaGeoJson(data);
+      })
+      .catch(() => {
+        // Ignore if boundary GeoJSON cannot be fetched
+      });
+  }, []);
 
   const useMapboxTiles = mapboxToken.trim().startsWith("pk.") && !mapboxError;
 
@@ -505,11 +520,15 @@ export default function SplitMap({
         className={`relative h-[340px] w-full sm:h-[400px] ${(tileConfig as { isOsmDark?: boolean }).isOsmDark ? "osm-dark-tiles" : ""}`}
       >
         <MapContainer
-          center={[20, 0]}
-          zoom={2}
-          minZoom={2}
-          maxZoom={12}
-          worldCopyJump={true}
+          center={[22.5, 82.0]}
+          zoom={4}
+          minZoom={4}
+          maxZoom={11}
+          maxBounds={[
+            [4.5, 65.0],
+            [39.0, 100.0],
+          ]}
+          maxBoundsViscosity={0.9}
           className="h-full w-full"
         >
           <TileLayer
@@ -526,6 +545,19 @@ export default function SplitMap({
               },
             }}
           />
+
+          {indiaGeoJson && (
+            <LeafletGeoJSON
+              data={indiaGeoJson}
+              style={{
+                color: "#22d3ee",
+                weight: 1,
+                opacity: 0.45,
+                fillColor: "#06b6d4",
+                fillOpacity: 0.03,
+              }}
+            />
+          )}
 
           <MapClickHandler
             activeTarget={activeTarget}

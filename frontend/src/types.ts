@@ -410,3 +410,123 @@ export interface AcquisitionManifestData {
   validations: Record<string, string>[];
   storage: Record<string, unknown>;
 }
+
+export interface IndiaBounds {
+  lat_min: number;
+  lat_max: number;
+  lon_min: number;
+  lon_max: number;
+}
+
+export interface IndiaSeasonSpec {
+  code: string;
+  name: string;
+  months: number[];
+  description: string;
+}
+
+export interface IndiaPhysiographicRegion {
+  id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  focus: string;
+}
+
+export interface IndiaRegionsResponse {
+  bounds: IndiaBounds;
+  seasons: Record<string, IndiaSeasonSpec>;
+  physiographic_regions: IndiaPhysiographicRegion[];
+}
+
+export interface IndiaSeasonResult {
+  name: string;
+  months: number[];
+  n_years: number;
+  mean_value: number | null;
+  std_value: number | null;
+  ols_slope_per_decade: number | null;
+  ols_p_value: number | null;
+  r_squared: number | null;
+  sen_slope_per_decade: number | null;
+  mk_tau: number | null;
+  mk_p_value: number | null;
+  holm_adjusted_p: number | null;
+  significant_holm: boolean;
+  lag1_autocorr: number | null;
+  direction: string;
+}
+
+export interface IndiaSeasonalAnalysisResponse {
+  meta: {
+    case_id?: string;
+    case_title?: string;
+    location?: string;
+    lat?: number;
+    lon?: number;
+    parameter: string;
+    units?: string;
+    source_mode?: string;
+  };
+  analysis: {
+    eda: {
+      n_total: number;
+      n_valid: number;
+      missing_pct: number;
+      mean: number | null;
+      std: number | null;
+      min: number | null;
+      max: number | null;
+      start_year: number | null;
+      end_year: number | null;
+    };
+    baseline_period: string;
+    seasons: Record<string, IndiaSeasonResult>;
+    annual_anomalies: {
+      year: number;
+      annual_mean: number;
+      anomaly: number;
+      z_score: number | null;
+    }[];
+    top_positive_years: { year: number; anomaly: number; annual_mean: number }[];
+    top_negative_years: { year: number; anomaly: number; annual_mean: number }[];
+    warnings?: string[];
+  };
+}
+
+export interface IndiaRegionalComparisonRow {
+  case_id: string;
+  case_title: string;
+  role: "primary" | "compare";
+  location: string;
+  lat: number;
+  lon: number;
+  parameter: string;
+  units: string;
+  source_mode: string;
+  n_months: number;
+  mean_value: number | null;
+  std_value: number | null;
+  sen_slope_per_decade: number | null;
+  mk_p_value: number | null;
+  mk_significant: boolean | null;
+  seasons: Record<
+    string,
+    {
+      name: string;
+      sen_slope_per_decade: number | null;
+      ols_slope_per_decade: number | null;
+      mk_p_value: number | null;
+      holm_adjusted_p: number | null;
+      significant_holm: boolean;
+    }
+  >;
+}
+
+export interface IndiaRegionalComparisonResponse {
+  start_year: number;
+  end_year: number;
+  baseline_period: string;
+  count: number;
+  rows: IndiaRegionalComparisonRow[];
+}
