@@ -24,7 +24,6 @@ import UpfrontTrendSummary from "./UpfrontTrendSummary";
 import LaymanStatisticalMethods from "./LaymanStatisticalMethods";
 import { synthesizeTrendFinding } from "./trendSynthesis";
 
-const API_BASE = API_BASE_URL;
 
 interface DossierModalProps {
   investigation: InvestigateResponse;
