@@ -70,6 +70,8 @@ export interface SeriesProvenance {
   end_date: string;
   retrieval_status: string;
   fallback_distance_km: number;
+  access_url?: string | null;
+  provenance_note?: string;
 }
 
 export interface SeriesStats {

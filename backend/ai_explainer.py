@@ -109,8 +109,8 @@ def build_deterministic_brief(
     if case_id == "case_1_monsoon":
         mechanism = (
             f"Hypothesis / Physical Context: Across {region_name} and {comparison_name or 'Marathwada / Deccan'}, "
-            "orographic uplift of Southwest Monsoon (JJAS) moisture along the Western Ghats contrasts with leeward "
-            "rain-shadow drying across the interior Deccan Plateau, "
+            "orographic uplift of Southwest Monsoon (JJAS) moisture along the Western Ghats is consistent with "
+            "contrasting leeward rainfall patterns across the interior Deccan Plateau, "
             f"corresponding to MERRA-2 precipitation slopes of {decade_rate:+.3f} vs "
             f"{(comparison_slope_per_year or 0) * 10:+.3f} {meta['unit']}/decade.{corr_clause}"
         )
@@ -118,14 +118,15 @@ def build_deterministic_brief(
     elif case_id == "case_2_himalaya":
         mechanism = (
             f"Hypothesis / Physical Context: {region_name} ({lat:.1f}°N) exhibits elevation-dependent warming "
-            f"({decade_rate:+.2f} °C/decade), where snow-albedo feedbacks and clear-sky radiative forcing accelerate "
-            f"surface heating relative to maritime moderation along {comparison_name or 'the Coromandel Coast'}.{corr_clause}"
+            f"({decade_rate:+.2f} °C/decade), a pattern that is consistent with elevation, snow-albedo, and "
+            f"clear-sky radiative influences relative to {comparison_name or 'the Coromandel Coast'}.{corr_clause}"
         )
         reference = "NASA POWER (MERRA-2 M2TMNXSLV) · Context: MODIS Terra LST & AIRS"
     elif case_id == "case_3_igp_thar":
         mechanism = (
             f"Hypothesis / Physical Context: Across {region_name} vs {comparison_name or 'the Thar Desert'}, "
-            "monsoon moisture penetration, evapotranspiration demand, and alluvial water storage contrast sharply "
+            "monsoon moisture penetration, evapotranspiration demand, and alluvial water storage may help explain "
+            "contrasting soil-wetness patterns "
             f"between cultivated Indo-Gangetic plains ({decade_rate:+.4f} {meta['unit']}/decade) and arid western sands "
             f"({(comparison_slope_per_year or 0) * 10:+.4f} {meta['unit']}/decade).{corr_clause}"
         )
@@ -133,21 +134,22 @@ def build_deterministic_brief(
     elif case_id == "case_4_northeast":
         mechanism = (
             f"Hypothesis / Physical Context: {region_name} receives intense Bay of Bengal moisture convergence "
-            f"({decade_rate:+.3f} {meta['unit']}/decade) compared to continental convective rainfall variability across "
+            f"({decade_rate:+.3f} {meta['unit']}/decade), a pattern that is consistent with Bay of Bengal moisture "
+            f"convergence compared to continental convective rainfall variability across "
             f"{comparison_name or 'the Central Indian Plateau'} ({(comparison_slope_per_year or 0) * 10:+.3f} {meta['unit']}/decade).{corr_clause}"
         )
         reference = "NASA POWER (MERRA-2 M2TMNXFLX) · Context: GPM IMERG, TRMM & IMD Monsoon Studies"
     elif case_id == "case_5_heat_belt":
         mechanism = (
             f"Hypothesis / Physical Context: Interior continental heating in {region_name} "
-            f"({decade_rate:+.2f} °C/decade) drives intense pre-monsoon (MAM) heat anomalies compared against "
-            f"coastal thermal buffering along {comparison_name or 'the Eastern Ghats Coast'}.{corr_clause}"
+            f"({decade_rate:+.2f} °C/decade) is consistent with stronger pre-monsoon (MAM) heat anomalies than "
+            f"coastal thermal conditions along {comparison_name or 'the Eastern Ghats Coast'}.{corr_clause}"
         )
         reference = "NASA POWER (MERRA-2 M2TMNXSLV) · Context: MODIS LST & ECOSTRESS"
     elif case_id == "case_6_delta_basin":
         mechanism = (
             f"Hypothesis / Physical Context: Across {region_name} and {comparison_name or 'the Upper Indus-Ganga Basin'}, "
-            f"deltaic estuary moisture ({decade_rate:+.4f} {meta['unit']}/decade) contrasts with irrigated basin profile wetness "
+            f"deltaic estuary moisture ({decade_rate:+.4f} {meta['unit']}/decade) shows a contrasting pattern to irrigated basin profile wetness "
             f"({(comparison_slope_per_year or 0) * 10:+.4f} {meta['unit']}/decade), complementing GRACE-FO groundwater assessments.{corr_clause}"
         )
         reference = "NASA POWER (MERRA-2 M2TMNXLND) · Context: GRACE-FO Mascon & ISRO MOSDAC"
@@ -155,27 +157,29 @@ def build_deterministic_brief(
         if param == "T2M":
             mechanism = (
                 f"Hypothesis / Physical Context: In this {band_label} ({lat:.2f}°, {lon:.2f}°), radiative forcing "
-                f"modulated by local surface albedo and circulation variability yields a deseasonalized slope of "
+                f"modulated by local surface albedo and circulation variability may contribute to a deseasonalized slope of "
                 f"{decade_rate:+.3f} °C/decade.{corr_clause}"
             )
             reference = f"{source_desc} · Context: NASA GISTEMP & NOAA NCEI"
         elif param in ("PRECTOTCORR", "QV2M"):
             mechanism = (
                 f"Hypothesis / Physical Context: In this {band_label} ({lat:.2f}°, {lon:.2f}°), Clausius-Clapeyron "
-                f"thermodynamics and shifting moisture convergence coincide with a deseasonalized rate of "
+                f"thermodynamics and shifting moisture convergence are contextual hypotheses for a deseasonalized rate of "
                 f"{decade_rate:+.4f} {meta['unit']}/decade.{corr_clause}"
             )
             reference = f"{source_desc} · Context: NASA GPM / GES DISC Hydrology"
         elif param in ("GWETROOT", "GWETPROF"):
             mechanism = (
                 f"Hypothesis / Physical Context: In this {band_label} ({lat:.2f}°, {lon:.2f}°), model-derived soil wetness "
-                f"reflects precipitation supply minus evaporative demand, yielding {decade_rate:+.4f} {meta['unit']}/decade.{corr_clause}"
+                f"represents a balance of modeled precipitation supply and evaporative demand, with an observed rate of "
+                f"{decade_rate:+.4f} {meta['unit']}/decade.{corr_clause}"
             )
             reference = f"{source_desc} · Context: NASA GLDAS / SMAP"
         else:
             mechanism = (
                 f"Hypothesis / Physical Context: In this {band_label} ({lat:.2f}°, {lon:.2f}°), regional circulation and "
-                f"baroclinic variability correspond to a deseasonalized rate of {decade_rate:+.4f} {meta['unit']}/decade.{corr_clause}"
+                f"baroclinic variability are possible contextual factors for a deseasonalized rate of "
+                f"{decade_rate:+.4f} {meta['unit']}/decade.{corr_clause}"
             )
             reference = f"{source_desc}"
 
@@ -208,9 +212,15 @@ def build_deterministic_brief(
         )
 
     missing_note = f" Missing data: {missing_pct:.2f}%." if missing_pct is not None else ""
+    spatial_note = (
+        provenance.get("spatial_resolution")
+        if provenance and provenance.get("spatial_resolution")
+        else "the supplied spatial support"
+    )
     limitations_note = (
         f"Dataset type: {data_type.replace('_', ' ')} ({source_desc}).{missing_note} "
-        "Reanalysis/model-derived grids (0.5° × 0.625°) represent grid-cell averages rather than point gauges. "
+        f"Spatial support: {spatial_note}; this is not necessarily a point observation. "
+        "The mechanism text is a contextual hypothesis, not a causal attribution. "
         "Correlation (r) does not imply causation, and p >= 0.05 does not prove zero trend."
     )
     if is_synthetic:

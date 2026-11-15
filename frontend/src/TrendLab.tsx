@@ -1191,6 +1191,21 @@ export default function TrendLab({
                     : `Exact requested coordinates (${investigation.response.primary_provenance?.retrieval_status ?? investigation.response.data_status})`}
                 </dd>
               </div>
+              <div className="col-span-2">
+                <dt className="text-[10px] text-slate-400">Provenance Note</dt>
+                <dd className="text-[10px] text-slate-300">
+                {investigation.response.primary_provenance?.provenance_note ??
+                  "Interpretation is limited to the supplied dataset metadata and processing window."}
+                {investigation.response.primary_provenance?.access_url ? (
+                  <>
+                    {" "}
+                    <span className="font-mono text-cyan-300">
+                      Access endpoint recorded in export.
+                    </span>
+                  </>
+                ) : null}
+                </dd>
+              </div>
             </dl>
           </div>
 

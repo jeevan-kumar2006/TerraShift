@@ -124,6 +124,18 @@ def test_cases_detail_with_custom_window(client):
     assert resp404.status_code == 404
 
 
+def test_case_response_preserves_provenance_traceability(client):
+    """The API response must retain the recorded source and access metadata."""
+    resp = client.get("/api/cases/case_1_monsoon")
+    assert resp.status_code == 200
+
+    provenance = resp.json()["response"]["primary_provenance"]
+    assert provenance["source_name"].startswith("NASA POWER API")
+    assert provenance["access_url"].endswith("/api/temporal/monthly/point")
+    assert provenance["retrieval_status"] == "cached"
+    assert "grid cell" in provenance["provenance_note"]
+
+
 def test_import_series_with_window_slicing(client):
     """Test /api/import-series with optional window filtering."""
     # Synthetic Giovanni CSV

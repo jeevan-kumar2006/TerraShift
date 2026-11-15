@@ -275,6 +275,11 @@ class SeriesStatsModel(BaseModel):
     interpolated_months: int | None = None
     max_consecutive_missing: int | None = None
     duplicate_timestamps_merged: int | None = None
+    changepoint_detected: bool | None = None
+    changepoint_k_stat: float | None = None
+    changepoint_p_value: float | None = None
+    changepoint_index: int | None = None
+    changepoint_timestamp: str | None = None
     ci_methodology: str | None = None
     horizon_assumptions: str | None = None
 
@@ -304,6 +309,7 @@ class DetectiveBriefModel(BaseModel):
 
 class SeriesProvenanceModel(BaseModel):
     source: str
+    source_name: str | None = None
     collection: str
     data_type: str
     community: str
@@ -321,6 +327,8 @@ class SeriesProvenanceModel(BaseModel):
     fallback_used: bool
     fallback_distance_km: float
     is_synthetic: bool
+    access_url: str | None = None
+    provenance_note: str | None = None
 
 
 class InvestigateDataModel(BaseModel):
@@ -1410,6 +1418,14 @@ async def india_seasonal_analysis_endpoint(req: IndiaSeasonalAnalysisRequest) ->
             "source_mode": "custom_series",
             "parameter": param,
             "location": "Custom India Series",
+            "provenance": {
+                "source": "User-Supplied Custom Series",
+                "collection": "Custom Series",
+                "data_type": "user_supplied",
+                "parameter": param,
+                "retrieval_status": "custom_payload",
+                "is_synthetic": False,
+            },
         }
     elif req.case_id:
         case_payload = get_preset_case_series(req.case_id, req.start_year, req.end_year)
@@ -1429,6 +1445,7 @@ async def india_seasonal_analysis_endpoint(req: IndiaSeasonalAnalysisRequest) ->
             "parameter": param,
             "units": case_meta.get("unit"),
             "source_mode": primary.get("data_status", "cache"),
+            "provenance": primary.get("provenance"),
         }
     elif req.lat is not None and req.lon is not None:
         if not is_within_india_bounds(req.lat, req.lon):
@@ -1454,6 +1471,7 @@ async def india_seasonal_analysis_endpoint(req: IndiaSeasonalAnalysisRequest) ->
             "parameter": param,
             "units": fetched.get("units"),
             "source_mode": fetched.get("source_mode", "live"),
+            "provenance": fetched.get("provenance"),
         }
     else:
         raise HTTPException(
@@ -1506,6 +1524,7 @@ async def india_regional_comparison(
                 "parameter": case_meta.get("parameter"),
                 "units": case_meta.get("unit"),
                 "source_mode": loc_data.get("data_status", "cache"),
+                "provenance": loc_data.get("provenance"),
                 "n_months": seasonal.get("eda", {}).get("n_valid", len(ts)),
                 "mean_value": seasonal.get("eda", {}).get("mean"),
                 "std_value": seasonal.get("eda", {}).get("std"),

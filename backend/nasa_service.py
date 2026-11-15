@@ -383,10 +383,15 @@ def build_series_provenance(
     req_lon = round(float(requested_lon), 4)
     act_lat = round(float(actual_lat), 4)
     act_lon = round(float(actual_lon), 4)
-    src = source_override or default_source
+    header_source = ""
+    if power_header:
+        header_source = str(power_header.get("source") or power_header.get("source_name") or "").strip()
+    src = source_override or header_source or default_source
+    access_url = NASA_POWER_URL if "NASA POWER" in src or "MERRA-2" in src else None
     return {
         "source": src,
         "source_name": src,
+        "access_url": access_url,
         "collection": collection_override or meta.get("collection", "MERRA-2"),
         "data_type": "synthetic_demo" if is_synthetic else (data_type_override or meta.get("data_type", "reanalysis")),
         "community": POWER_COMMUNITY_MAP.get(param, "AG"),
@@ -408,6 +413,11 @@ def build_series_provenance(
         "fallback_used": retrieval_status == "offline_fallback",
         "fallback_distance_km": dist_val,
         "is_synthetic": bool(is_synthetic),
+        "provenance_note": (
+            "Coordinates identify the requested or source grid cell; values are not point observations."
+            if access_url
+            else "Spatial and source details depend on metadata supplied with the imported series."
+        ),
     }
 
 
@@ -479,6 +489,7 @@ def get_preset_case_series(case_id: str, start_year: int | None = None, end_year
                         actual_lon=p_lon,
                         timestamps=p_ts,
                         retrieval_status="cached",
+                        power_header=c.get("primary_series", {}).get("power_header"),
                     ),
                 },
                 "comparison": {
@@ -498,6 +509,7 @@ def get_preset_case_series(case_id: str, start_year: int | None = None, end_year
                         actual_lon=c_lon,
                         timestamps=c_ts,
                         retrieval_status="cached",
+                        power_header=c.get("comparison_series", {}).get("power_header"),
                     ),
                 },
             }
