@@ -10,7 +10,17 @@ import {
   useMap,
   useMapEvents,
 } from "react-leaflet";
-import { Crosshair, ArrowLeftRight, Trash2, Radio, KeyRound, Globe, Layers } from "lucide-react";
+import {
+  ArrowLeftRight,
+  Crosshair,
+  Globe,
+  HelpCircle,
+  KeyRound,
+  Layers,
+  MapPin,
+  Radio,
+  Trash2,
+} from "lucide-react";
 import type { BoundingBox, GeoPoint, SeriesStats, TeleconnectionSummary } from "./types";
 
 type MapStyleMode = "dark" | "satellite" | "terrain";
@@ -40,37 +50,60 @@ function getSlopeColor(
   parameter: string,
   slopePerYear: number | null | undefined,
   isSignificant: boolean | null | undefined
-): { hex: string; label: string } {
+): { hex: string; label: string; positive: boolean } {
   if (slopePerYear === null || slopePerYear === undefined) {
-    return { hex: "#94a3b8", label: "Pending analysis" };
+    return { hex: "#94a3b8", label: "Pending Analysis", positive: true };
   }
   if (!isSignificant) {
-    return { hex: "#facc15", label: "Insignificant / Noise" };
+    return { hex: "#facc15", label: "Insignificant / Natural Noise (p ≥ 0.05)", positive: slopePerYear >= 0 };
   }
   const code = parameter.toUpperCase();
   if (code === "T2M") {
     return slopePerYear >= 0
-      ? { hex: "#fb7185", label: "Significant Warming" }
-      : { hex: "#38bdf8", label: "Significant Cooling" };
+      ? { hex: "#fb7185", label: "Significant Warming (p < 0.05)", positive: true }
+      : { hex: "#38bdf8", label: "Significant Cooling (p < 0.05)", positive: false };
   }
   if (code === "PS") {
     return slopePerYear >= 0
-      ? { hex: "#818cf8", label: "Rising Pressure" }
-      : { hex: "#fbbf24", label: "Falling Pressure" };
+      ? { hex: "#818cf8", label: "Rising Surface Pressure", positive: true }
+      : { hex: "#fbbf24", label: "Falling Surface Pressure", positive: false };
   }
   return slopePerYear >= 0
-    ? { hex: "#2dd4bf", label: "Significant Wetting" }
-    : { hex: "#f59e0b", label: "Significant Drying" };
+    ? { hex: "#2dd4bf", label: "Significant Wetting (p < 0.05)", positive: true }
+    : { hex: "#f59e0b", label: "Significant Drying (p < 0.05)", positive: false };
+}
+
+function getParameterLegendItems(parameter: string): { label: string; hex: string; description: string }[] {
+  const code = parameter.toUpperCase();
+  if (code === "T2M") {
+    return [
+      { label: "Significant Warming", hex: "#fb7185", description: "Temperature rising (p < 0.05)" },
+      { label: "Significant Cooling", hex: "#38bdf8", description: "Temperature falling (p < 0.05)" },
+      { label: "Insignificant / Noise", hex: "#facc15", description: "Natural variability (p ≥ 0.05)" },
+    ];
+  }
+  if (code === "PS") {
+    return [
+      { label: "Rising Pressure", hex: "#818cf8", description: "Surface pressure increasing (p < 0.05)" },
+      { label: "Falling Pressure", hex: "#fbbf24", description: "Surface pressure decreasing (p < 0.05)" },
+      { label: "Insignificant / Noise", hex: "#facc15", description: "Natural variability (p ≥ 0.05)" },
+    ];
+  }
+  return [
+    { label: "Significant Wetting", hex: "#2dd4bf", description: "Moisture increasing (p < 0.05)" },
+    { label: "Significant Drying", hex: "#f59e0b", description: "Moisture decreasing (p < 0.05)" },
+    { label: "Insignificant / Noise", hex: "#facc15", description: "Natural variability (p ≥ 0.05)" },
+  ];
 }
 
 function createBadgeIcon(label: "A" | "B", colorHex: string, isActive: boolean): L.DivIcon {
   const ring = isActive
-    ? `box-shadow: 0 0 0 4px rgba(34,211,238,0.35), 0 4px 14px rgba(0,0,0,0.65);`
-    : `box-shadow: 0 4px 12px rgba(0,0,0,0.65);`;
+    ? `box-shadow: 0 0 0 4px rgba(34,211,238,0.45), 0 4px 16px rgba(0,0,0,0.75); transform: translate(-16px, -16px) scale(1.1);`
+    : `box-shadow: 0 4px 12px rgba(0,0,0,0.65); transform: translate(-15px, -15px);`;
   const html = `
     <div style="
-      width: 30px;
-      height: 30px;
+      width: 32px;
+      height: 32px;
       border-radius: 9999px;
       background: ${colorHex};
       border: 2.5px solid #020617;
@@ -80,8 +113,8 @@ function createBadgeIcon(label: "A" | "B", colorHex: string, isActive: boolean):
       display: flex;
       align-items: center;
       justify-content: center;
+      transition: transform 0.15s ease-out;
       ${ring}
-      transform: translate(-15px, -15px);
     ">${label}</div>
   `;
   return L.divIcon({
@@ -194,6 +227,7 @@ export default function SplitMap({
   const [tokenDraft, setTokenDraft] = useState<string>(mapboxToken);
   const [mapboxError, setMapboxError] = useState<boolean>(false);
   const [tokenValidationError, setTokenValidationError] = useState<string | null>(null);
+  const [mobileLegendOpen, setMobileLegendOpen] = useState<boolean>(false);
 
   const useMapboxTiles = mapboxToken.trim().startsWith("pk.") && !mapboxError;
 
@@ -225,7 +259,7 @@ export default function SplitMap({
         attribution: "Tiles &copy; Esri &mdash; Source: Esri, NASA, USGS",
         tileSize: 256,
         zoomOffset: 0,
-        providerBadge: "Satellite Imagery (Add Mapbox Key for Mapbox GL Tiles)",
+        providerBadge: "Satellite Imagery (Esri)",
       };
     }
 
@@ -236,7 +270,7 @@ export default function SplitMap({
         attribution: "&copy; OpenTopoMap &copy; OpenStreetMap contributors",
         tileSize: 256,
         zoomOffset: 0,
-        providerBadge: "Hydrology / Terrain",
+        providerBadge: "Hydrology / Topo",
       };
     }
 
@@ -299,31 +333,42 @@ export default function SplitMap({
   const teleBadge = useMemo(() => {
     if (!teleconnection?.enabled || rVal === null || rVal === undefined) return null;
     if (rVal <= -0.25) {
-      return { text: `Inverse Seesaw (r = ${rVal.toFixed(2)})`, cls: "border-rose-500/40 bg-rose-950/80 text-rose-200" };
+      return {
+        text: `Inverse Seesaw Dipole (r = ${rVal.toFixed(2)})`,
+        cls: "border-rose-500/40 bg-rose-950/85 text-rose-200",
+      };
     }
     if (rVal >= 0.25) {
-      return { text: `Co-Moving (r = +${rVal.toFixed(2)})`, cls: "border-emerald-500/40 bg-emerald-950/80 text-emerald-200" };
+      return {
+        text: `Synchronized Co-Movement (r = +${rVal.toFixed(2)})`,
+        cls: "border-emerald-500/40 bg-emerald-950/85 text-emerald-200",
+      };
     }
-    return { text: `Weak Linear Link (r = ${rVal.toFixed(2)})`, cls: "border-slate-600/60 bg-slate-900/90 text-slate-200" };
+    return {
+      text: `Decoupled Systems (r = ${rVal.toFixed(2)})`,
+      cls: "border-slate-600/60 bg-slate-900/90 text-slate-200",
+    };
   }, [teleconnection?.enabled, rVal]);
+
+  const legendItems = useMemo(() => getParameterLegendItems(parameter), [parameter]);
 
   return (
     <div className="relative flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/70 shadow-xl">
-      {/* Top Overlay Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-900/95 px-4 py-2.5">
+      {/* Top Toolbar with Target Selectors and Map Options */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-slate-800 bg-slate-900/95 px-4 py-3">
         <div className="flex flex-wrap items-center gap-2">
           <Crosshair className="h-4 w-4 text-cyan-400" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
             Dual-Region Teleconnection Map
           </span>
-          <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-950/40 px-2 py-0.5 text-[10px] font-medium text-cyan-300">
+          <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-950/40 px-2.5 py-0.5 text-[10px] font-medium text-cyan-300">
             <Globe className="h-3 w-3" />
             {tileConfig.providerBadge}
           </span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
-          {/* Mapbox Layer Switcher */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Map Layer Switcher */}
           <div className="flex items-center rounded-lg border border-slate-800 bg-slate-950 p-0.5 text-[11px]">
             <Layers className="mx-1.5 h-3 w-3 text-slate-400" />
             {(["dark", "satellite", "terrain"] as MapStyleMode[]).map((m) => (
@@ -331,9 +376,9 @@ export default function SplitMap({
                 key={m}
                 type="button"
                 onClick={() => setStyleMode(m)}
-                className={`rounded-md px-2 py-0.5 font-medium capitalize transition ${
+                className={`rounded-md px-2.5 py-1 font-medium capitalize transition ${
                   styleMode === m
-                    ? "bg-cyan-500 text-slate-950"
+                    ? "bg-cyan-500 font-bold text-slate-950"
                     : "text-slate-400 hover:text-slate-200"
                 }`}
               >
@@ -348,7 +393,8 @@ export default function SplitMap({
               setTokenDraft(mapboxToken);
               setShowTokenEditor((s) => !s);
             }}
-            className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition ${
+            title="Configure Mapbox token for high-resolution vector and satellite tiles"
+            className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-medium transition ${
               useMapboxTiles
                 ? "border border-emerald-500/40 bg-emerald-950/40 text-emerald-300"
                 : "border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
@@ -358,47 +404,51 @@ export default function SplitMap({
             {useMapboxTiles ? "Mapbox Active" : "Mapbox Key"}
           </button>
 
+          {/* Region A Selector Button */}
           <button
             type="button"
             onClick={() => onChangeActiveTarget("A")}
-            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+            title="Clicking the globe will set Primary Region A"
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
               activeTarget === "A"
-                ? "bg-cyan-500/20 text-cyan-200 ring-1 ring-cyan-400/60"
-                : "bg-slate-800 text-slate-400 hover:text-slate-200"
+                ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300/80 shadow-md"
+                : "bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white"
             }`}
           >
             <span
               className="inline-block h-2.5 w-2.5 rounded-full"
-              style={{ backgroundColor: colorA.hex }}
+              style={{ backgroundColor: activeTarget === "A" ? "#020617" : colorA.hex }}
             />
-            Click sets Region A
+            {activeTarget === "A" ? "Clicking sets Region A" : "Set Region A"}
           </button>
 
+          {/* Region B Selector Button */}
           <button
             type="button"
             onClick={() => onChangeActiveTarget("B")}
-            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+            title="Clicking the globe will set Comparison Region B for teleconnection analysis"
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
               activeTarget === "B"
-                ? "bg-indigo-500/25 text-indigo-200 ring-1 ring-indigo-400/60"
-                : "bg-slate-800 text-slate-400 hover:text-slate-200"
+                ? "bg-indigo-500 text-white ring-2 ring-indigo-300/80 shadow-md"
+                : "bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white"
             }`}
           >
             <span
               className="inline-block h-2.5 w-2.5 rounded-full"
-              style={{ backgroundColor: colorB.hex }}
+              style={{ backgroundColor: activeTarget === "B" ? "#ffffff" : colorB.hex }}
             />
-            Click sets Region B
+            {activeTarget === "B" ? "Clicking sets Region B" : "Set Region B"}
           </button>
 
           {pointA && pointB && (
             <button
               type="button"
               onClick={onSwapPoints}
-              title="Swap Primary (A) and Comparison (B)"
-              className="flex items-center gap-1 rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700"
+              title="Swap Region A and Region B"
+              className="flex items-center gap-1 rounded-lg bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-700"
             >
               <ArrowLeftRight className="h-3.5 w-3.5" />
-              Swap
+              <span className="hidden sm:inline">Swap</span>
             </button>
           )}
 
@@ -407,22 +457,22 @@ export default function SplitMap({
               type="button"
               onClick={onClearPointB}
               title="Remove Comparison Region B"
-              className="flex items-center gap-1 rounded-lg bg-slate-800 px-2 py-1 text-xs text-rose-300 transition hover:bg-rose-950/60"
+              className="flex items-center gap-1 rounded-lg bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-rose-300 transition hover:bg-rose-950/60"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              Clear B
+              <span className="hidden sm:inline">Clear B</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* Optional Mapbox API Token Bar */}
+      {/* Optional Mapbox API Token Drawer */}
       {showTokenEditor && (
-        <div className="border-b border-slate-800 bg-slate-950 px-4 py-2 text-xs">
+        <div className="border-b border-slate-800 bg-slate-950 px-4 py-2.5 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-slate-300">
-              Enter a Mapbox public token (<code className="text-cyan-300">pk.eyJ...</code>) or set{" "}
-              <code className="text-cyan-300">VITE_MAPBOX_TOKEN</code> to enable Mapbox Static Tiles &amp; Reverse Geocoding:
+              Enter a Mapbox public token (<code className="text-cyan-300">pk.eyJ...</code>) or configure{" "}
+              <code className="text-cyan-300">VITE_MAPBOX_TOKEN</code> in your environment:
             </span>
             <div className="flex items-center gap-2">
               <input
@@ -433,12 +483,12 @@ export default function SplitMap({
                   if (tokenValidationError) setTokenValidationError(null);
                 }}
                 placeholder="pk.eyJ1Ijoi..."
-                className="w-64 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 font-mono text-xs text-slate-100 outline-none focus:border-cyan-400"
+                className="w-64 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-xs text-slate-100 outline-none focus:border-cyan-400"
               />
               <button
                 type="button"
                 onClick={handleSaveToken}
-                className="rounded-lg bg-cyan-500 px-3 py-1 font-bold text-slate-950 hover:bg-cyan-400"
+                className="rounded-lg bg-cyan-500 px-3 py-1.5 font-bold text-slate-950 hover:bg-cyan-400"
               >
                 Apply
               </button>
@@ -450,8 +500,10 @@ export default function SplitMap({
         </div>
       )}
 
-      {/* Map Canvas */}
-      <div className={`relative h-[340px] w-full sm:h-[380px] ${(tileConfig as { isOsmDark?: boolean }).isOsmDark ? "osm-dark-tiles" : ""}`}>
+      {/* Map Canvas with Leaflet */}
+      <div
+        className={`relative h-[340px] w-full sm:h-[400px] ${(tileConfig as { isOsmDark?: boolean }).isOsmDark ? "osm-dark-tiles" : ""}`}
+      >
         <MapContainer
           center={[20, 0]}
           zoom={2}
@@ -482,14 +534,14 @@ export default function SplitMap({
           />
           <ViewportController pointA={pointA} pointB={pointB} fitVersion={fitVersion} />
 
-          {/* MERRA-2 0.5 x 0.625 Grid Cell Bounding Boxes */}
+          {/* Grid Cell Bounding Boxes */}
           {boxA && (
             <Rectangle
               bounds={[
                 [boxA.south, boxA.west],
                 [boxA.north, boxA.east],
               ]}
-              pathOptions={{ color: colorA.hex, weight: 1.5, fillOpacity: 0.16, dashArray: "3 3" }}
+              pathOptions={{ color: colorA.hex, weight: 1.8, fillOpacity: 0.18, dashArray: "4 4" }}
             />
           )}
           {boxB && (
@@ -498,11 +550,11 @@ export default function SplitMap({
                 [boxB.south, boxB.west],
                 [boxB.north, boxB.east],
               ]}
-              pathOptions={{ color: colorB.hex, weight: 1.5, fillOpacity: 0.16, dashArray: "3 3" }}
+              pathOptions={{ color: colorB.hex, weight: 1.8, fillOpacity: 0.18, dashArray: "4 4" }}
             />
           )}
 
-          {/* Teleconnection Dashed Link */}
+          {/* Teleconnection Dashed Link Line */}
           {pointA && pointB && (
             <Polyline
               positions={[
@@ -511,9 +563,9 @@ export default function SplitMap({
               ]}
               pathOptions={{
                 color: "#38bdf8",
-                weight: 2,
+                weight: 2.2,
                 dashArray: "6 8",
-                opacity: 0.85,
+                opacity: 0.9,
               }}
             />
           )}
@@ -539,11 +591,14 @@ export default function SplitMap({
             >
               <Popup>
                 <div className="text-xs text-slate-900">
-                  <p className="font-bold">Region A: {pointA.name}</p>
-                  <p>
+                  <p className="font-bold text-cyan-900">Primary Region (Marker A)</p>
+                  <p className="font-semibold text-slate-800">{pointA.name}</p>
+                  <p className="font-mono text-slate-600">
                     {pointA.lat.toFixed(2)}°, {pointA.lon.toFixed(2)}°
                   </p>
-                  <p className="mt-1 font-medium">{colorA.label}</p>
+                  <p className="mt-1 font-medium" style={{ color: colorA.hex }}>
+                    Status: {colorA.label}
+                  </p>
                 </div>
               </Popup>
             </Marker>
@@ -570,11 +625,14 @@ export default function SplitMap({
             >
               <Popup>
                 <div className="text-xs text-slate-900">
-                  <p className="font-bold">Region B: {pointB.name}</p>
-                  <p>
+                  <p className="font-bold text-indigo-900">Comparison Region (Marker B)</p>
+                  <p className="font-semibold text-slate-800">{pointB.name}</p>
+                  <p className="font-mono text-slate-600">
                     {pointB.lat.toFixed(2)}°, {pointB.lon.toFixed(2)}°
                   </p>
-                  <p className="mt-1 font-medium">{colorB.label}</p>
+                  <p className="mt-1 font-medium" style={{ color: colorB.hex }}>
+                    Status: {colorB.label}
+                  </p>
                 </div>
               </Popup>
             </Marker>
@@ -584,72 +642,174 @@ export default function SplitMap({
         {/* Floating Teleconnection Pill */}
         {teleBadge && (
           <div
-            className={`pointer-events-none absolute right-3 top-3 z-[400] flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold backdrop-blur-md ${teleBadge.cls}`}
+            className={`pointer-events-none absolute right-3 top-3 z-[400] flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold shadow-lg backdrop-blur-md ${teleBadge.cls}`}
           >
             <Radio className="h-3.5 w-3.5" />
             {teleBadge.text}
           </div>
         )}
 
-        {/* Map Legend */}
-        <div className="pointer-events-none absolute bottom-3 left-3 z-[400] hidden flex-wrap items-center gap-2.5 rounded-lg border border-slate-700/80 bg-slate-950/85 px-2.5 py-1.5 text-[11px] text-slate-300 backdrop-blur-md sm:flex">
-          <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-rose-400" /> Warming
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-sky-400" /> Cooling
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-teal-400" /> Wetting
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-amber-400" /> Drying
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-yellow-400" /> Insignificant
-          </span>
+        {/* Dynamic Desktop Legend */}
+        <div className="pointer-events-none absolute bottom-3 left-3 z-[400] hidden flex-col gap-1 rounded-xl border border-slate-700/80 bg-slate-950/90 p-2.5 text-[11px] text-slate-200 shadow-xl backdrop-blur-md sm:flex">
+          <p className="font-bold uppercase tracking-wider text-slate-400 text-[10px]">
+            Map Status Legend ({parameter.toUpperCase()})
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            {legendItems.map((item) => (
+              <span key={item.label} className="flex items-center gap-1.5">
+                <span
+                  className="h-2.5 w-2.5 rounded-full ring-1 ring-slate-900"
+                  style={{ backgroundColor: item.hex }}
+                />
+                <span className="font-medium">{item.label}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Mobile Legend Button & Drawer */}
+        <div className="absolute bottom-3 left-3 z-[400] sm:hidden">
+          <button
+            type="button"
+            onClick={() => setMobileLegendOpen((o) => !o)}
+            className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-950/90 px-2.5 py-1 text-xs font-semibold text-cyan-300 shadow backdrop-blur-md"
+          >
+            <HelpCircle className="h-3.5 w-3.5" />
+            {mobileLegendOpen ? "Close Legend" : "Map Legend"}
+          </button>
+          {mobileLegendOpen && (
+            <div className="mt-1.5 rounded-xl border border-slate-700 bg-slate-950/95 p-2.5 text-xs text-slate-200 shadow-xl">
+              <p className="font-bold text-[10px] uppercase tracking-wider text-slate-400">
+                Status Legend ({parameter.toUpperCase()})
+              </p>
+              <div className="mt-1.5 space-y-1">
+                {legendItems.map((item) => (
+                  <div key={item.label} className="flex items-center gap-2">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: item.hex }}
+                    />
+                    <span>{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Live Bounding-Box Coordinate Footer */}
-      <div className="grid grid-cols-1 gap-2 border-t border-slate-800 bg-slate-950/70 px-4 py-2.5 text-xs sm:grid-cols-2">
-        <div className="flex flex-col gap-0.5 rounded-lg border border-slate-800/80 bg-slate-900/60 px-3 py-2">
+      {/* Informative Coordinate & Regional Comparison Footer */}
+      <div className="grid grid-cols-1 gap-2.5 border-t border-slate-800 bg-slate-950/80 px-4 py-3 text-xs sm:grid-cols-2">
+        {/* Region A Profile */}
+        <div className="flex flex-col gap-1 rounded-xl border border-slate-800 bg-slate-900/70 p-3">
           <div className="flex items-center justify-between">
-            <span className="font-semibold text-cyan-300">
-              Marker A · {pointA ? pointA.name : "Click map to select"}
+            <span className="flex items-center gap-1.5 font-bold text-cyan-300">
+              <MapPin className="h-3.5 w-3.5" />
+              Primary Investigation Site (Marker A)
             </span>
-            <span className="text-[11px] font-medium" style={{ color: colorA.hex }}>
+            <span
+              className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              style={{
+                backgroundColor: `${colorA.hex}22`,
+                color: colorA.hex,
+                border: `1px solid ${colorA.hex}44`,
+              }}
+            >
               {colorA.label}
             </span>
           </div>
-          {pointA && boxA ? (
-            <p className="font-mono text-[11px] text-slate-400">
-              Pt ({pointA.lat.toFixed(2)}°, {pointA.lon.toFixed(2)}°) · Grid [{boxA.south.toFixed(2)}°..
-              {boxA.north.toFixed(2)}°N, {boxA.west.toFixed(2)}°..{boxA.east.toFixed(2)}°E]
-            </p>
+          {pointA ? (
+            <>
+              <p className="font-semibold text-white">{pointA.name}</p>
+              <p className="font-mono text-[11px] text-slate-400">
+                Coords: {pointA.lat >= 0 ? `${pointA.lat.toFixed(2)}°N` : `${Math.abs(pointA.lat).toFixed(2)}°S`},{" "}
+                {pointA.lon >= 0 ? `${pointA.lon.toFixed(2)}°E` : `${Math.abs(pointA.lon).toFixed(2)}°W`}
+                {boxA && (
+                  <span>
+                    {" "}
+                    · Grid Cell [{boxA.south.toFixed(2)}°..{boxA.north.toFixed(2)}°N, {boxA.west.toFixed(2)}°..
+                    {boxA.east.toFixed(2)}°E]
+                  </span>
+                )}
+              </p>
+              {primaryStats && (
+                <p className="text-[11px] text-slate-300">
+                  Rate:{" "}
+                  <strong className="font-mono text-cyan-200">
+                    {primaryStats.sens_slope_per_decade >= 0 ? "+" : ""}
+                    {primaryStats.sens_slope_per_decade}/decade
+                  </strong>{" "}
+                  · Mann-Kendall p ={" "}
+                  <strong className="font-mono text-slate-200">
+                    {primaryStats.p_value < 0.0001 ? "< 0.0001" : primaryStats.p_value.toFixed(4)}
+                  </strong>
+                </p>
+              )}
+            </>
           ) : (
-            <p className="text-[11px] text-slate-500">No primary coordinates placed yet.</p>
+            <p className="text-[11px] text-slate-400">Click on the map to place Marker A.</p>
           )}
         </div>
 
-        <div className="flex flex-col gap-0.5 rounded-lg border border-slate-800/80 bg-slate-900/60 px-3 py-2">
+        {/* Region B Profile */}
+        <div className="flex flex-col gap-1 rounded-xl border border-slate-800 bg-slate-900/70 p-3">
           <div className="flex items-center justify-between">
-            <span className="font-semibold text-indigo-300">
-              Marker B · {pointB ? pointB.name : "Optional comparison"}
+            <span className="flex items-center gap-1.5 font-bold text-indigo-300">
+              <Radio className="h-3.5 w-3.5" />
+              Teleconnection Comparison Site (Marker B)
             </span>
-            <span className="text-[11px] font-medium" style={{ color: colorB.hex }}>
+            <span
+              className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              style={{
+                backgroundColor: pointB ? `${colorB.hex}22` : "#33415522",
+                color: pointB ? colorB.hex : "#94a3b8",
+                border: `1px solid ${pointB ? colorB.hex : "#334155"}44`,
+              }}
+            >
               {pointB ? colorB.label : "Inactive"}
             </span>
           </div>
-          {pointB && boxB ? (
-            <p className="font-mono text-[11px] text-slate-400">
-              Pt ({pointB.lat.toFixed(2)}°, {pointB.lon.toFixed(2)}°) · Grid [{boxB.south.toFixed(2)}°..
-              {boxB.north.toFixed(2)}°N, {boxB.west.toFixed(2)}°..{boxB.east.toFixed(2)}°E]
-            </p>
+          {pointB ? (
+            <>
+              <p className="font-semibold text-white">{pointB.name}</p>
+              <p className="font-mono text-[11px] text-slate-400">
+                Coords: {pointB.lat >= 0 ? `${pointB.lat.toFixed(2)}°N` : `${Math.abs(pointB.lat).toFixed(2)}°S`},{" "}
+                {pointB.lon >= 0 ? `${pointB.lon.toFixed(2)}°E` : `${Math.abs(pointB.lon).toFixed(2)}°W`}
+                {boxB && (
+                  <span>
+                    {" "}
+                    · Grid Cell [{boxB.south.toFixed(2)}°..{boxB.north.toFixed(2)}°N, {boxB.west.toFixed(2)}°..
+                    {boxB.east.toFixed(2)}°E]
+                  </span>
+                )}
+              </p>
+              {teleconnection && (
+                <p className="text-[11px] text-slate-300">
+                  Rate:{" "}
+                  <strong className="font-mono text-indigo-200">
+                    {(teleconnection.comparison_sens_slope_per_decade ?? 0) >= 0 ? "+" : ""}
+                    {teleconnection.comparison_sens_slope_per_decade ?? "0"}/decade
+                  </strong>{" "}
+                  · Correlation r ={" "}
+                  <strong className="font-mono text-white">
+                    {teleconnection.cross_correlation_r !== null && teleconnection.cross_correlation_r !== undefined
+                      ? teleconnection.cross_correlation_r.toFixed(3)
+                      : "N/A"}
+                  </strong>
+                </p>
+              )}
+            </>
           ) : (
-            <p className="text-[11px] text-slate-500">
-              Switch to &ldquo;Region B&rdquo; and click anywhere to compare teleconnections.
-            </p>
+            <div className="flex flex-col gap-1 text-[11px] text-slate-400">
+              <p>Compare teleconnections across distant Earth systems.</p>
+              <button
+                type="button"
+                onClick={() => onChangeActiveTarget("B")}
+                className="mt-0.5 inline-flex w-fit items-center gap-1 rounded bg-indigo-500/20 px-2 py-0.5 text-[11px] font-semibold text-indigo-300 hover:bg-indigo-500/30"
+              >
+                Click here then select a point on the globe
+              </button>
+            </div>
           )}
         </div>
       </div>

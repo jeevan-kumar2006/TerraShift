@@ -1,13 +1,16 @@
 import {
-  ArrowRight,
+  Activity,
+  ArrowUpRight,
   BarChart3,
-  BookOpen,
-  Compass,
+  ChevronRight,
+  Crosshair,
   Database,
   Globe2,
-  LineChart,
+  Orbit,
+  Radar,
+  Satellite,
   ShieldCheck,
-  Sparkles,
+  Target,
 } from "lucide-react";
 import type { InvestigateResponse, PresetCaseMeta } from "./types";
 
@@ -20,6 +23,51 @@ interface HomePageProps {
   onSelectCaseAndExplore: (caseId: string, targetSection: NavSection) => void;
 }
 
+const signalCards = [
+  {
+    index: "01",
+    icon: Crosshair,
+    title: "Locate the signal",
+    description: "Drop a marker anywhere on Earth and define the variable worth investigating.",
+  },
+  {
+    index: "02",
+    icon: Activity,
+    title: "Separate the noise",
+    description: "Remove seasonal cycles so the long-term movement becomes impossible to miss.",
+  },
+  {
+    index: "03",
+    icon: ShieldCheck,
+    title: "Verify the shift",
+    description: "Use robust statistical tests and uncertainty intervals before drawing a conclusion.",
+  },
+];
+
+const nasaImages = [
+  {
+    src: "/images/nasa/pia11066.jpg",
+    alt: "Curved Earth limb and clouds photographed from orbit",
+    title: "The orbital horizon",
+    credit: "NASA / PIA11066",
+    href: "https://images.nasa.gov/details/PIA11066",
+  },
+  {
+    src: "/images/nasa/iss045e013851.jpg",
+    alt: "Night-side Earth observation from the International Space Station",
+    title: "Observation at night",
+    credit: "NASA / ISS045-E-013851",
+    href: "https://images.nasa.gov/details/iss045e013851",
+  },
+  {
+    src: "/images/nasa/sl4-143-4707.jpg",
+    alt: "Skylab space station cluster above a cloud-covered Earth",
+    title: "Infrastructure in orbit",
+    credit: "NASA / SL4-143-4707",
+    href: "https://images.nasa.gov/details/sl4-143-4707",
+  },
+];
+
 export default function HomePage({
   cases,
   activeInvestigation,
@@ -29,297 +77,284 @@ export default function HomePage({
   const featuredCases = cases.slice(0, 4);
   const activeStats = activeInvestigation?.response.primary_stats;
   const activeMeta = activeInvestigation?.response.metadata;
+  const activePoint = activeInvestigation?.request.primary_point;
 
   return (
-    <div className="space-y-8">
-      {/* Hero Section */}
-      <section className="relative overflow-hidden rounded-3xl border border-slate-800/90 bg-gradient-to-br from-slate-900 via-[#0a1628] to-slate-950 p-6 shadow-2xl sm:p-10">
-        <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-cyan-500/10 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-24 left-1/3 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl" />
+    <div className="home-page">
+      <section className="home-hero">
+        <img
+          className="hero-nasa-image"
+          src="/images/nasa/pia11066.jpg"
+          alt="Earth's cloud-covered horizon photographed from orbit"
+        />
+        <div className="hero-grid" aria-hidden="true" />
+        <div className="hero-orbit hero-orbit-one" aria-hidden="true" />
+        <div className="hero-orbit hero-orbit-two" aria-hidden="true" />
+        <div className="hero-glow hero-glow-one" aria-hidden="true" />
+        <div className="hero-glow hero-glow-two" aria-hidden="true" />
 
-        <div className="relative grid grid-cols-1 items-center gap-8 lg:grid-cols-12">
-          <div className="space-y-5 lg:col-span-7">
-            <div className="inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3.5 py-1 text-xs font-semibold text-cyan-300">
-              <Sparkles className="h-3.5 w-3.5" />
-              NASA Space Apps Challenge · Earth Observation &amp; Trend Science
-            </div>
-
-            <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
-              Be An Earth System Trend Detective!
-            </h1>
-
-            <p className="max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
-              Explore real NASA climate and water datasets from anywhere on Earth. Spot hidden
-              multi-decade shifts beneath noisy seasonal swings, test whether changes are
-              statistically real, and read clear, plain-language explanations.
-            </p>
-
-            <div className="flex flex-wrap items-center gap-3 pt-1">
-              <button
-                type="button"
-                onClick={() => onNavigate("explore")}
-                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 px-6 py-3 text-sm font-bold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:brightness-110"
-              >
-                Start Exploring
-                <ArrowRight className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => onNavigate("analysis")}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-400/60 hover:bg-slate-800"
-              >
-                <LineChart className="h-4 w-4 text-cyan-400" />
-                View Live Trend Chart
-              </button>
-              <button
-                type="button"
-                onClick={() => onNavigate("help")}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-transparent px-4 py-3 text-sm font-medium text-slate-300 transition hover:text-white"
-              >
-                <BookOpen className="h-4 w-4 text-emerald-400" />
-                Beginner&apos;s Guide
-              </button>
-            </div>
+        <div className="hero-copy">
+          <div className="eyebrow eyebrow-light">
+            <span className="eyebrow-mark" />
+            Orbital intelligence / 01
           </div>
-
-          {/* Engaging Live Earth Snapshot Card */}
-          <div className="lg:col-span-5">
-            <div className="rounded-2xl border border-slate-700/80 bg-slate-950/85 p-5 shadow-xl">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <div className="flex items-center gap-2">
-                  <Globe2 className="h-5 w-5 text-cyan-400" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                    Active Earth Investigation
-                  </span>
-                </div>
-                <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-300">
-                  NASA POWER
-                </span>
-              </div>
-
-              {activeInvestigation && activeStats && activeMeta ? (
-                <div className="mt-4 space-y-3">
-                  <div>
-                    <p className="text-xs text-slate-400">Region &amp; Variable</p>
-                    <p className="text-base font-bold text-white">
-                      {activeInvestigation.request.primary_point.name} — {activeMeta.parameter_name}
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 rounded-xl border border-slate-800 bg-slate-900/70 p-3">
-                    <div>
-                      <p className="text-[11px] text-slate-400">Rate of Change</p>
-                      <p className="font-mono text-lg font-bold text-cyan-300">
-                        {activeStats.sens_slope_per_decade >= 0 ? "+" : ""}
-                        {activeStats.sens_slope_per_decade} {activeMeta.unit}/dec
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[11px] text-slate-400">Statistical Verdict</p>
-                      <p
-                        className={`text-sm font-bold ${
-                          activeStats.is_significant ? "text-emerald-400" : "text-amber-300"
-                        }`}
-                      >
-                        {activeStats.is_significant
-                          ? activeStats.sens_slope_per_year >= 0
-                            ? "Significant Increase"
-                            : "Significant Decrease"
-                          : "Not Significant (p >= 0.05)"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <p className="text-xs leading-relaxed text-slate-300">
-                    {activeInvestigation.response.detective_brief.verdict_headline}
-                  </p>
-
-                  <div className="flex gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => onNavigate("analysis")}
-                      className="flex-1 rounded-lg bg-cyan-500/15 px-3 py-2 text-xs font-semibold text-cyan-200 transition hover:bg-cyan-500/25"
-                    >
-                      Inspect Chart
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onNavigate("results")}
-                      className="flex-1 rounded-lg bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-200 transition hover:bg-emerald-500/25"
-                    >
-                      Statistical Results
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-4 space-y-2 text-xs text-slate-400">
-                  <p>Loading featured NASA Earth observation investigation...</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* How the Platform Works (4 Simple Steps) */}
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h2 className="text-xl font-bold text-white">How It Works</h2>
-            <p className="text-sm text-slate-400">
-              No statistics degree required — follow four clear steps from raw data to evidence-based conclusions.
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/20 font-mono text-sm font-bold text-cyan-300">
-              1
-            </span>
-            <h3 className="mt-3 text-sm font-bold text-white">Pick a Region &amp; Variable</h3>
-            <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-              Choose temperature, rainfall, or soil moisture, click any spot on Earth, and select a multi-year window.
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/20 font-mono text-sm font-bold text-cyan-300">
-              2
-            </span>
-            <h3 className="mt-3 text-sm font-bold text-white">Separate Seasons from Trends</h3>
-            <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-              Winter-to-summer swings can hide slow climate shifts. We strip repeating seasonal cycles to reveal anomalies.
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/20 font-mono text-sm font-bold text-emerald-300">
-              3
-            </span>
-            <h3 className="mt-3 text-sm font-bold text-white">Run Real Statistical Tests</h3>
-            <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-              Compute Linear Regression, Student&apos;s t-test, Mann-Kendall, Sen&apos;s Slope, and 95% Confidence Intervals.
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/20 font-mono text-sm font-bold text-emerald-300">
-              4
-            </span>
-            <h3 className="mt-3 text-sm font-bold text-white">Interpret with Confidence</h3>
-            <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-              Read plain-language explanations of what each number means, including uncertainty and dataset limitations.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Featured Case Studies */}
-      {featuredCases.length > 0 && (
-        <section className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="text-xl font-bold text-white">Ready-to-Explore Earth Mysteries</h2>
-              <p className="text-sm text-slate-400">
-                Click any real-world case study to jump straight into its time-series chart and statistical results.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => onNavigate("explore")}
-              className="text-xs font-semibold text-cyan-300 hover:underline"
-            >
-              Or pick your own coordinates &rarr;
+          <h1>
+            Read the signal
+            <br />
+            <span>before it moves.</span>
+          </h1>
+          <p className="hero-lede">
+            TerraShift turns long-running NASA Earth observation into a clear, defensible view of
+            how the planet is changing.
+          </p>
+          <div className="hero-actions">
+            <button type="button" className="button button-primary" onClick={() => onNavigate("explore")}>
+              Begin an investigation
+              <ArrowUpRight className="h-4 w-4" />
+            </button>
+            <button type="button" className="button button-quiet" onClick={() => onNavigate("about")}>
+              How the science works
+              <ChevronRight className="h-4 w-4" />
             </button>
           </div>
+          <div className="hero-proof">
+            <div className="proof-item">
+              <span className="proof-value">{activeStats?.observation_years ? `${activeStats.observation_years.toFixed(0)}+` : "LIVE"}</span>
+              <span className="proof-label">{activeStats ? "years in view" : "NASA data path"}</span>
+            </div>
+            <div className="proof-rule" />
+            <div className="proof-item">
+              <span className="proof-value">{cases.length ? String(cases.length).padStart(2, "0") : "—"}</span>
+              <span className="proof-label">open case files</span>
+            </div>
+            <div className="proof-rule" />
+            <div className="proof-item">
+              <span className="proof-value">STL</span>
+              <span className="proof-label">seasonality removed</span>
+            </div>
+          </div>
+        </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {featuredCases.map((c) => (
-              <div
-                key={c.case_id}
-                className="flex flex-col justify-between rounded-2xl border border-slate-800 bg-slate-900/70 p-5 transition hover:border-cyan-500/50"
-              >
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="rounded-full bg-cyan-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-cyan-300">
-                      {c.parameter_name} ({c.unit})
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      {c.default_window[0]}–{c.default_window[1]}
-                    </span>
-                  </div>
-                  <h3 className="text-base font-bold text-white">{c.title}</h3>
-                  <p className="text-xs leading-relaxed text-slate-400">{c.mechanism_teaser}</p>
-                </div>
+        <div className="hero-instrument" aria-label="Live investigation summary">
+          <div className="instrument-header">
+            <div className="instrument-label">
+              <Radar className="h-4 w-4" />
+              Live signal monitor
+            </div>
+            <span className="instrument-status">
+              <span className="status-dot" />
+              {activeInvestigation ? "connected" : "standby"}
+            </span>
+          </div>
+          <div className="instrument-visual">
+            <div className="instrument-earth" aria-hidden="true">
+              <div className="earth-land earth-land-one" />
+              <div className="earth-land earth-land-two" />
+              <div className="earth-land earth-land-three" />
+              <span className="earth-point" />
+              <span className="earth-scan" />
+            </div>
+            <div className="instrument-readout instrument-readout-top">
+              <span>ORBITAL FEED</span>
+              <strong>NASA / MERRA-2</strong>
+            </div>
+            <div className="instrument-readout instrument-readout-bottom">
+              <span>LAT / LONG</span>
+              <strong>{activePoint ? `${activePoint.lat.toFixed(2)}° / ${activePoint.lon.toFixed(2)}°` : "78.22° / 15.63°"}</strong>
+            </div>
+          </div>
+          <div className="instrument-data">
+            <div>
+              <span className="data-label">Current focus</span>
+              <strong>{activePoint?.name ?? "Svalbard Archipelago"}</strong>
+            </div>
+            <div>
+              <span className="data-label">Variable</span>
+              <strong>{activeMeta?.parameter_name ?? "Surface temperature"}</strong>
+            </div>
+            <div className="instrument-divider" />
+            <div className="instrument-trend">
+              <span className="data-label">Trend direction</span>
+              <strong className={activeStats?.is_significant ? "trend-positive" : "trend-neutral"}>
+                {activeStats
+                  ? activeStats.sens_slope_per_year >= 0
+                    ? "Rising signal"
+                    : "Falling signal"
+                  : "Awaiting signal"}
+              </strong>
+            </div>
+          </div>
+          <button type="button" className="instrument-link" onClick={() => onNavigate("analysis")}>
+            Open active chart <ArrowUpRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </section>
 
-                <div className="mt-4 flex flex-wrap gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => onSelectCaseAndExplore(c.case_id, "analysis")}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-bold text-slate-950 transition hover:bg-cyan-400"
-                  >
-                    <LineChart className="h-3.5 w-3.5" />
-                    Visualize Trend
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onSelectCaseAndExplore(c.case_id, "results")}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-emerald-400/60"
-                  >
-                    <BarChart3 className="h-3.5 w-3.5 text-emerald-400" />
-                    Statistical Results
-                  </button>
+      <section className="nasa-archive" aria-labelledby="nasa-archive-title">
+        <div className="nasa-archive-heading">
+          <div className="section-index">02 / Orbital archive</div>
+          <div>
+            <p className="eyebrow">NASA imagery / public domain source</p>
+            <h2 id="nasa-archive-title">The view is part of the evidence.</h2>
+            <p>
+              TerraShift works from Earth observation records. These NASA archive images ground the
+              interface in the same orbital perspective without standing in for computed results.
+            </p>
+          </div>
+        </div>
+        <div className="nasa-archive-grid">
+          {nasaImages.map((image) => (
+            <figure className="nasa-image-card" key={image.src}>
+              <a href={image.href} target="_blank" rel="noreferrer">
+                <img src={image.src} alt={image.alt} loading="lazy" />
+                <span className="nasa-image-arrow" aria-hidden="true">↗</span>
+              </a>
+              <figcaption>
+                <strong>{image.title}</strong>
+                <span>{image.credit}</span>
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+      </section>
+
+      <section className="home-intro section-grid">
+        <div className="section-index">03 / The mission</div>
+        <div className="intro-content">
+          <p className="eyebrow">From raw observation to clear direction</p>
+          <h2>
+            The planet is always
+            <br />
+            <em>sending a signal.</em>
+          </h2>
+          <p className="intro-body">
+            Seasonal swings, weather events, and noisy measurements can hide the slow changes that
+            matter most. TerraShift gives researchers, students, and decision-makers a rigorous
+            starting point for finding those changes and understanding their confidence.
+          </p>
+          <button type="button" className="text-link" onClick={() => onNavigate("help")}>
+            Read the field guide <ArrowUpRight className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="intro-orbit-card">
+          <Orbit className="h-6 w-6" />
+          <span className="orbit-card-label">Mission readout</span>
+          <div className="orbit-lines" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+            <span />
+          </div>
+          <strong>Make the orbital record legible.</strong>
+        </div>
+      </section>
+
+      <section className="home-process">
+        <div className="process-heading section-grid">
+          <div className="section-index">04 / The method</div>
+          <div>
+            <p className="eyebrow">A disciplined path to evidence</p>
+            <h2>Every investigation starts with a better question.</h2>
+          </div>
+        </div>
+        <div className="process-grid">
+          {signalCards.map((card) => {
+            const Icon = card.icon;
+            return (
+              <article className="process-card" key={card.index}>
+                <div className="process-card-top">
+                  <span>{card.index}</span>
+                  <Icon className="h-5 w-5" />
                 </div>
+                <h3>{card.title}</h3>
+                <p>{card.description}</p>
+                <span className="process-card-line" />
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      {featuredCases.length > 0 && (
+        <section className="home-cases">
+          <div className="cases-heading section-grid">
+            <div className="section-index">05 / Open case files</div>
+            <div className="cases-heading-content">
+              <div>
+                <p className="eyebrow">Start from a known signal</p>
+                <h2>Questions worth zooming in on.</h2>
               </div>
+              <button type="button" className="text-link" onClick={() => onNavigate("explore")}>
+                Explore all variables <ArrowUpRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          <div className="case-grid">
+            {featuredCases.map((caseFile, index) => (
+              <article className="case-card" key={caseFile.case_id}>
+                <div className={`case-card-art case-art-${index + 1}`} aria-hidden="true">
+                  <span className="case-art-grid" />
+                  <span className="case-art-signal" />
+                </div>
+                <div className="case-card-content">
+                  <div className="case-card-meta">
+                    <span>{String(index + 1).padStart(2, "0")}</span>
+                    <span>{caseFile.parameter_name}</span>
+                  </div>
+                  <h3>{caseFile.title}</h3>
+                  <p>{caseFile.mechanism_teaser}</p>
+                  <div className="case-card-actions">
+                    <button type="button" className="case-card-link" onClick={() => onSelectCaseAndExplore(caseFile.case_id, "analysis")}>
+                      View signal <ArrowUpRight className="h-3.5 w-3.5" />
+                    </button>
+                    <span>{caseFile.default_window[0]}–{caseFile.default_window[1]}</span>
+                  </div>
+                </div>
+              </article>
             ))}
           </div>
         </section>
       )}
 
-      {/* Quick Access to Core Platform Sections */}
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <button
-          type="button"
-          onClick={() => onNavigate("explore")}
-          className="flex items-start gap-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-5 text-left transition hover:border-cyan-500/50 hover:bg-slate-900"
-        >
-          <Compass className="mt-0.5 h-6 w-6 shrink-0 text-cyan-400" />
-          <div>
-            <p className="text-sm font-bold text-white">Explore Data</p>
-            <p className="mt-1 text-xs text-slate-400">
-              Select variables, map coordinates, time ranges, or import NASA Giovanni / KNMI CSVs.
-            </p>
+      <section className="home-cta">
+        <div className="cta-stars" aria-hidden="true" />
+        <div className="cta-copy">
+          <div className="eyebrow eyebrow-light">
+            <span className="eyebrow-mark" />
+            Your next observation
           </div>
-        </button>
+          <h2>Look closer. Decide earlier.</h2>
+          <p>Choose a place, choose a variable, and let the evidence lead the way.</p>
+        </div>
+        <div className="cta-actions">
+          <button type="button" className="button button-primary" onClick={() => onNavigate("explore")}>
+            Launch an investigation
+            <ArrowUpRight className="h-4 w-4" />
+          </button>
+          <div className="cta-utility">
+            <Satellite className="h-4 w-4" />
+            <span>Powered by NASA Earth observation data</span>
+          </div>
+        </div>
+      </section>
 
-        <button
-          type="button"
-          onClick={() => onNavigate("results")}
-          className="flex items-start gap-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-5 text-left transition hover:border-emerald-500/50 hover:bg-slate-900"
-        >
-          <ShieldCheck className="mt-0.5 h-6 w-6 shrink-0 text-emerald-400" />
-          <div>
-            <p className="text-sm font-bold text-white">Statistical Results</p>
-            <p className="mt-1 text-xs text-slate-400">
-              Inspect Linear Regression, Student&apos;s t-test, Mann-Kendall, Sen&apos;s Slope, and 95% CIs.
-            </p>
-          </div>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onNavigate("about")}
-          className="flex items-start gap-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-5 text-left transition hover:border-indigo-500/50 hover:bg-slate-900"
-        >
-          <Database className="mt-0.5 h-6 w-6 shrink-0 text-indigo-400" />
-          <div>
-            <p className="text-sm font-bold text-white">Scientific Rigor &amp; Sources</p>
-            <p className="mt-1 text-xs text-slate-400">
-              Learn about NASA MERRA-2, satellite metadata, autocorrelation checks, and limitations.
-            </p>
-          </div>
-        </button>
+      <section className="home-footer-signals" aria-label="TerraShift platform capabilities">
+        <div className="footer-signal">
+          <Globe2 className="h-4 w-4" />
+          <span>Global coverage</span>
+        </div>
+        <div className="footer-signal">
+          <Database className="h-4 w-4" />
+          <span>Open scientific sources</span>
+        </div>
+        <div className="footer-signal">
+          <BarChart3 className="h-4 w-4" />
+          <span>Transparent statistics</span>
+        </div>
+        <div className="footer-signal">
+          <Target className="h-4 w-4" />
+          <span>Decision-ready evidence</span>
+        </div>
       </section>
     </div>
   );

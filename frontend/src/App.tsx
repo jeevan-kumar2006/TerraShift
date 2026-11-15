@@ -457,33 +457,36 @@ export default function App() {
   const dataStatus = result?.response.data_status;
 
   const navItems: { id: NavSection; label: string; icon: typeof Home }[] = [
-    { id: "home", label: "Home", icon: Home },
-    { id: "explore", label: "Explore Data", icon: Compass },
-    { id: "analysis", label: "Trend Analysis", icon: LineChart },
-    { id: "results", label: "Statistical Results", icon: BarChart3 },
-    { id: "about", label: "About", icon: Database },
-    { id: "help", label: "Help / Guide", icon: BookOpen },
+    { id: "home", label: "Mission control", icon: Home },
+    { id: "explore", label: "Explore signals", icon: Compass },
+    { id: "analysis", label: "Trend lab", icon: LineChart },
+    { id: "results", label: "Evidence", icon: BarChart3 },
+    { id: "about", label: "About TerraShift", icon: Database },
+    { id: "help", label: "Field guide", icon: BookOpen },
   ];
 
   return (
-    <div className="min-h-screen bg-[#060b16] text-slate-100">
-      {/* Clean Top Navigation Bar */}
-      <nav className="app-shell-hide-on-print sticky top-0 z-40 border-b border-slate-800/90 bg-slate-950/90 backdrop-blur-md">
+    <div className="app-shell min-h-screen bg-[#07090b] text-slate-100">
+      <div className="announcement-bar app-shell-hide-on-print">
+        <span>TerraShift / NASA Earth observation intelligence</span>
+        <span className="announcement-detail">Read the signal before it moves <span aria-hidden="true">→</span></span>
+      </div>
+      <nav className="app-shell-hide-on-print site-nav sticky top-0 z-40">
         <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <button
             type="button"
             onClick={() => handleNavigate("home")}
             className="flex items-center gap-2.5 text-left"
           >
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-500/15 ring-1 ring-cyan-400/40">
+            <div className="brand-mark">
               <Satellite className="h-5 w-5 text-cyan-300" />
             </div>
             <div>
-              <p className="text-sm font-extrabold tracking-tight text-white sm:text-base">
+              <p className="brand-name">
                 TerraShift
               </p>
-              <p className="hidden text-[10px] text-slate-400 sm:block">
-                Earth System Trend Detective
+              <p className="brand-subtitle">
+                Earth intelligence / orbital record
               </p>
             </div>
           </button>
@@ -538,7 +541,7 @@ export default function App() {
               type="button"
               disabled={!result}
               onClick={() => setDossierOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-950 shadow transition hover:bg-cyan-200 disabled:opacity-40"
+              className="dossier-button inline-flex items-center gap-1.5 disabled:opacity-40"
             >
               <FileText className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Field Dossier</span>
@@ -591,19 +594,29 @@ export default function App() {
         )}
 
         {error && (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-500/40 bg-rose-950/60 px-4 py-3 text-xs text-rose-200">
-            <div>
-              <strong>Investigation Error:</strong> {error}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-500/40 bg-rose-950/70 px-4 py-3 text-xs text-rose-200 shadow-lg">
+            <div className="space-y-0.5">
+              <strong className="text-rose-100">Investigation Error:</strong>
+              <p className="text-rose-200/90">{error}</p>
             </div>
-            {cases.length === 0 && (
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => loadInitialCases()}
-                className="rounded-lg border border-rose-400/50 bg-rose-900/60 px-2.5 py-1 text-xs font-semibold text-rose-100 hover:bg-rose-800"
+                onClick={() => runInvestigation()}
+                className="rounded-lg border border-rose-400/50 bg-rose-900/60 px-3 py-1.5 text-xs font-semibold text-rose-100 hover:bg-rose-800 transition"
               >
-                Retry Connection
+                Retry Request
               </button>
-            )}
+              {cases.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => handleSelectCase(cases[0])}
+                  className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition"
+                >
+                  Load Arctic Case File
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -954,28 +967,56 @@ export default function App() {
         />
 
         {result && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-xs">
-            <div className="text-slate-300">
-              <strong className="text-white">Dataset Ready:</strong>{" "}
-              {result.request.primary_point.name} · {result.response.metadata.parameter_name} (
-              {result.response.primary_stats.observation_months} months, {windowRange[0]}–{windowRange[1]})
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-500/30 bg-slate-900/80 p-4 text-xs shadow-xl">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-bold text-emerald-200">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  Investigation Ready
+                </span>
+                <span className="font-semibold text-white">
+                  {result.request.primary_point.name}
+                  {pointB ? ` vs. ${pointB.name}` : ""}
+                </span>
+                <span className="text-slate-400">·</span>
+                <span className="font-medium text-cyan-300">
+                  {result.response.metadata.parameter_name} ({result.response.metadata.unit})
+                </span>
+              </div>
+              <p className="text-slate-400">
+                Window: <strong className="font-mono text-slate-200">{windowRange[0]}–{windowRange[1]}</strong> ({result.response.primary_stats.observation_months} monthly observations · {result.response.primary_stats.observation_years} yrs) · Sen&apos;s Slope:{" "}
+                <strong className="font-mono text-white">
+                  {result.response.primary_stats.sens_slope_per_decade >= 0 ? "+" : ""}
+                  {result.response.primary_stats.sens_slope_per_decade} {result.response.metadata.unit}/decade
+                </strong>{" "}
+                ({result.response.primary_stats.is_significant ? "Significant, p < 0.05" : "Not yet significant, p ≥ 0.05"})
+              </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => handleNavigate("analysis")}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500 px-3.5 py-2 text-xs font-bold text-slate-950 transition hover:bg-cyan-400"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-cyan-500 px-4 py-2 text-xs font-bold text-slate-950 transition hover:bg-cyan-400 shadow-md shadow-cyan-500/20"
               >
                 <LineChart className="h-3.5 w-3.5" />
-                Open Trend Analysis
+                Proceed to Trend Analysis (STL)
+                <ArrowRight className="h-3.5 w-3.5" />
               </button>
               <button
                 type="button"
                 onClick={() => handleNavigate("results")}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/20 px-3.5 py-2 text-xs font-bold text-emerald-200 ring-1 ring-emerald-500/40 transition hover:bg-emerald-500/30"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition"
               >
                 <BarChart3 className="h-3.5 w-3.5" />
-                Open Statistical Results
+                Statistical Results
+              </button>
+              <button
+                type="button"
+                onClick={() => setDossierOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                Dossier
               </button>
             </div>
           </div>
@@ -1021,16 +1062,39 @@ export default function App() {
                 loading={loading}
               />
             ) : (
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-8 text-center text-sm text-slate-300">
-                Select a dataset or region in{" "}
-                <button
-                  type="button"
-                  onClick={() => handleNavigate("explore")}
-                  className="font-bold text-cyan-300 underline"
-                >
-                  Explore Data
-                </button>{" "}
-                to visualize its time-series trends.
+              <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-8 sm:p-12 text-center shadow-xl">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-500/30">
+                  <LineChart className="h-7 w-7" />
+                </div>
+                <div className="max-w-md space-y-1">
+                  <h2 className="text-base font-bold text-white sm:text-lg">
+                    No Active Time-Series Investigation
+                  </h2>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    TrendLab performs 3-phase STL seasonal decomposition, Sen&apos;s slope linear regression, and 95%
+                    confidence band analysis on multi-decade NASA observations.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleNavigate("explore")}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-cyan-500 px-4 py-2 text-xs font-bold text-slate-950 transition hover:bg-cyan-400"
+                  >
+                    <Compass className="h-4 w-4" />
+                    Explore Earth System Map
+                  </button>
+                  {cases.slice(0, 2).map((c) => (
+                    <button
+                      key={c.case_id}
+                      type="button"
+                      onClick={() => handleSelectCaseAndExplore(c.case_id, "analysis")}
+                      className="rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition"
+                    >
+                      Load {c.short_title}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </>
@@ -1051,16 +1115,39 @@ export default function App() {
               onGoToCharts={() => handleNavigate("analysis")}
             />
           ) : (
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-8 text-center text-sm text-slate-300">
-              Run an investigation in{" "}
-              <button
-                type="button"
-                onClick={() => handleNavigate("explore")}
-                className="font-bold text-cyan-300 underline"
-              >
-                Explore Data
-              </button>{" "}
-              to view the Statistical Results Dashboard.
+            <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-8 sm:p-12 text-center shadow-xl">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30">
+                <BarChart3 className="h-7 w-7" />
+              </div>
+              <div className="max-w-md space-y-1">
+                <h2 className="text-base font-bold text-white sm:text-lg">
+                  No Statistical Results Available
+                </h2>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Run an investigation to evaluate Sen&apos;s slope, Mann-Kendall monotonic tests, Hamed-Rao serial
+                  correlation adjustments, and statistical power horizons.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => handleNavigate("explore")}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-4 py-2 text-xs font-bold text-slate-950 transition hover:bg-emerald-400"
+                >
+                  <Compass className="h-4 w-4" />
+                  Select Target on Map
+                </button>
+                {cases.slice(0, 2).map((c) => (
+                  <button
+                    key={c.case_id}
+                    type="button"
+                    onClick={() => handleSelectCaseAndExplore(c.case_id, "results")}
+                    className="rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition"
+                  >
+                    Load {c.short_title}
+                  </button>
+                ))}
+              </div>
             </div>
           )
         )}
