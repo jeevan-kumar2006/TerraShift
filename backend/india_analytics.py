@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import linregress
 
-from stats_engine import _clean_float, mann_kendall_test, pettitt_test, sens_slope
+from stats_engine import _clean_float, mann_kendall_test, sens_slope
 
 INDIA_SEASONS: list[dict[str, Any]] = [
     {"code": "JF", "name": "Winter (Jan–Feb)", "months": [1, 2]},
@@ -179,29 +179,22 @@ def analyze_india_seasons(
 
         if len(y_vals) >= 4:
             mk = mann_kendall_test(y_vals)
-            sen = sens_slope(y_vals, step_frequency=1)
-            slope_yr = float(sen["sens_slope_per_year"])
-            ci_lo = float(sen["sens_slope_ci_lower"])
-            ci_hi = float(sen["sens_slope_ci_upper"])
+            sen = sens_slope(y_vals)
+            slope_yr = float(sen["sens_slope_per_month"])
+            ci_lo = float(sen["sens_slope_ci_lower"]) / 12.0
+            ci_hi = float(sen["sens_slope_ci_upper"]) / 12.0
             lr = linregress(years, y_vals)
             ols_slope = float(lr.slope)
             ols_r2 = float(lr.rvalue ** 2)
             ols_p = float(lr.pvalue)
             r1 = _lag1_autocorr(y_vals)
             p_mk = float(mk["p_value"])
-            pettitt = pettitt_test(y_vals)
         else:
             mk = {"tau": 0.0, "p_value": 1.0, "s_stat": 0}
             slope_yr, ci_lo, ci_hi = 0.0, 0.0, 0.0
             ols_slope, ols_r2, ols_p, r1, p_mk = 0.0, 0.0, 1.0, None, 1.0
-            pettitt = {"is_significant": False, "k_stat": 0.0, "p_value": 1.0, "changepoint_index": None}
 
         raw_p_values.append(p_mk)
-        cp_year = (
-            int(years[pettitt["changepoint_index"]])
-            if pettitt["changepoint_index"] is not None and pettitt["is_significant"]
-            else None
-        )
         seasonal_results.append(
             {
                 "code": s_spec["code"],
@@ -220,9 +213,6 @@ def analyze_india_seasons(
                 "mk_tau": _clean_float(mk["tau"], 4),
                 "mk_p_value": _clean_float(p_mk, 5),
                 "lag1_autocorr": r1,
-                "changepoint_detected": bool(pettitt["is_significant"]),
-                "changepoint_year": cp_year,
-                "changepoint_p_value": _clean_float(pettitt["p_value"], 5),
                 "direction": "increasing" if slope_yr > 0 else ("decreasing" if slope_yr < 0 else "stable"),
             }
         )
@@ -255,28 +245,12 @@ def analyze_india_seasons(
         for yr, val in ann.items()
     ]
     sorted_anom = sorted(anomalies, key=lambda x: x["anomaly"] or 0.0, reverse=True)
-
-    # Annual structural changepoint test (Pettitt, 1979)
-    ann_np = ann.to_numpy(dtype=float)
-    ann_years = ann.index.to_numpy(dtype=int)
-    ann_pt = pettitt_test(ann_np)
-    annual_cp = None
-    if ann_pt["is_significant"] and ann_pt["changepoint_index"] is not None:
-        cp_yr = int(ann_years[ann_pt["changepoint_index"]])
-        annual_cp = {
-            "year": cp_yr,
-            "k_stat": _clean_float(ann_pt["k_stat"], 1),
-            "p_value": _clean_float(ann_pt["p_value"], 5),
-            "is_significant": True,
-        }
-
     return {
         "eda": eda,
         "seasons": seasons_dict,
         "baseline_period": f"{int(base_slice.index.min())}–{int(base_slice.index.max())}",
         "baseline_mean": _clean_float(base_mean, 4),
         "annual_anomalies": anomalies,
-        "annual_changepoint": annual_cp,
         "top_positive_years": sorted_anom[:3],
         "top_negative_years": list(reversed(sorted_anom[-3:])),
     }

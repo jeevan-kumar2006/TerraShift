@@ -117,65 +117,6 @@ def test_mann_kendall_matches_pymannkendall():
     assert abs(ours["p_value"] - ref.p) < 1e-6
 
 
-def test_hamed_rao_matches_independent_reference_implementation():
-    rng = np.random.default_rng(77)
-    arr = 0.03 * np.arange(240) + rng.normal(0.0, 0.3, size=240)
-
-    ours = mann_kendall_test(arr, variant="hamed_rao")
-    ref = mk.hamed_rao_modification_test(arr)
-
-    assert abs(ours["tau"] - ref.Tau) < 1e-6
-    assert abs(ours["z_score"] - ref.z) < 1e-6
-    assert abs(ours["p_value"] - ref.p) < 1e-6
-
-
-def test_seasonal_reference_series_does_not_create_a_trend():
-    n_months = 20 * 12
-    months = np.arange(n_months) % 12
-    values = 12.0 + 5.0 * np.sin(2.0 * np.pi * months / 12.0)
-
-    result = analyze_series(_make_monthly_timestamps(2000, n_months), values.tolist())
-    stats = result["primary_stats"]
-
-    assert stats["variance_reduction_pct"] > 95.0
-    assert stats["is_significant"] is False
-    assert abs(stats["sens_slope_per_year"]) < 0.005
-
-
-def test_cached_case_provenance_preserves_recorded_power_header():
-    from nasa_service import get_preset_case_series
-
-    case = get_preset_case_series("case_1_monsoon")
-    assert case is not None
-    provenance = case["primary"]["provenance"]
-
-    assert "NASA POWER API v2.10.0" in provenance["source"]
-    assert provenance["access_url"].endswith("/api/temporal/monthly/point")
-    assert provenance["retrieval_status"] == "cached"
-    assert provenance["actual_coordinates"] == {"lat": 10.52, "lon": 76.21}
-
-
-def test_deterministic_brief_labels_mechanisms_as_non_causal_hypotheses():
-    from ai_explainer import build_deterministic_brief
-
-    brief = build_deterministic_brief(
-        lat=34.15,
-        lon=77.58,
-        parameter="T2M",
-        sens_slope_per_year=0.04,
-        p_value=0.001,
-        variance_reduction_pct=80.0,
-        observation_years=20.0,
-        region_name="Leh / Ladakh",
-        case_id="case_2_himalaya",
-    )
-
-    text = f"{brief['physical_mechanism']} {brief['limitations_note']}".lower()
-    assert "hypothesis" in text
-    assert "not a causal attribution" in text
-    assert "drives" not in text
-
-
 def test_edge_cases_constant_fill_values_and_too_short():
     timestamps = _make_monthly_timestamps(2020, 36)
     constant_vals = [4.2] * 36

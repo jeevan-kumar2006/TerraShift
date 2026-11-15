@@ -183,56 +183,12 @@ def mann_kendall_test(y: np.ndarray, variant: str = "standard") -> dict[str, Any
     }
 
 
-def pettitt_test(y: np.ndarray | list[float]) -> dict[str, Any]:
-    """
-    Pettitt (1979) non-parametric test for detecting a single abrupt changepoint (regime shift)
-    in a continuous time series.
-
-    Computes U_{t,T} = sum_{i=1}^t sum_{j=t+1}^T sgn(x_i - x_j).
-    Changepoint occurs at K_T = max_{1 <= t < T} |U_{t,T}|.
-    Two-sided p-value approximation: p ~= 2 * exp(-6 * K_T^2 / (T^3 + T^2)).
-    """
-    arr = np.asarray(y, dtype=float)
-    n = len(arr)
-    if n < 4:
-        return {
-            "k_stat": 0.0,
-            "changepoint_index": None,
-            "p_value": 1.0,
-            "is_significant": False,
-        }
-
-    ranks = pd.Series(arr).rank(method="average").to_numpy(dtype=float)
-    cum_ranks = np.cumsum(ranks)
-    t = np.arange(1, n, dtype=float)
-    u_t = 2.0 * cum_ranks[:-1] - t * (n + 1.0)
-    abs_u_t = np.abs(u_t)
-    best_idx = int(np.argmax(abs_u_t))
-    k_stat = float(abs_u_t[best_idx])
-    p_val = float(2.0 * np.exp(-6.0 * (k_stat ** 2) / (float(n) ** 3 + float(n) ** 2)))
-    p_val = min(1.0, max(0.0, p_val))
-
-    return {
-        "k_stat": k_stat,
-        "changepoint_index": best_idx,
-        "p_value": p_val,
-        "is_significant": bool(p_val < 0.05),
-    }
-
-
-def sens_slope(y: np.ndarray, step_frequency: int = 12) -> dict[str, float]:
-    """
-    Compute Theil-Sen median slope and non-parametric 95% confidence bounds (Sen, 1968).
-
-    Args:
-        y: input 1D sequence of observations.
-        step_frequency: number of steps per year (12 for monthly series, 1 for annual/seasonal series).
-    """
+def sens_slope(y: np.ndarray) -> dict[str, float]:
+    """Compute Theil-Sen median slope (month, year, decade) and non-parametric 95% confidence bounds."""
     arr = np.asarray(y, dtype=float)
     n = len(arr)
     if n < 2:
         return {
-            "sens_slope_step": 0.0,
             "sens_slope_per_month": 0.0,
             "sens_slope_per_year": 0.0,
             "sens_slope_per_decade": 0.0,
@@ -242,9 +198,8 @@ def sens_slope(y: np.ndarray, step_frequency: int = 12) -> dict[str, float]:
 
     i_idx, j_idx = np.triu_indices(n, k=1)
     slopes = np.sort((arr[j_idx] - arr[i_idx]) / (j_idx - i_idx))
-    slope_step = float(np.median(slopes))
-    freq = float(step_frequency)
-    slope_year = slope_step * freq
+    slope_month = float(np.median(slopes))
+    slope_year = slope_month * 12.0
     slope_decade = slope_year * 10.0
 
     # Sen (1968) non-parametric 95% confidence interval using Kendall variance
@@ -257,15 +212,14 @@ def sens_slope(y: np.ndarray, step_frequency: int = 12) -> dict[str, float]:
         c_alpha = float(norm.ppf(0.975) * math.sqrt(var_s))
         m1 = max(0, min(total_pairs - 1, int(math.floor((total_pairs - c_alpha) / 2.0))))
         m2 = max(0, min(total_pairs - 1, int(math.ceil((total_pairs + c_alpha) / 2.0)) - 1))
-        ci_low_yr = float(slopes[m1]) * freq
-        ci_high_yr = float(slopes[m2]) * freq
+        ci_low_yr = float(slopes[m1]) * 12.0
+        ci_high_yr = float(slopes[m2]) * 12.0
     else:
         ci_low_yr = slope_year
         ci_high_yr = slope_year
 
     return {
-        "sens_slope_step": slope_step,
-        "sens_slope_per_month": slope_step,  # backwards-compatible alias for monthly series
+        "sens_slope_per_month": slope_month,
         "sens_slope_per_year": slope_year,
         "sens_slope_per_decade": slope_decade,
         "sens_slope_ci_lower": ci_low_yr,
@@ -278,13 +232,10 @@ def estimate_years_to_significance(
     slope_per_year: float,
     resid_std: float,
     is_significant: bool,
-    lag1_autocorr: float = 0.0,
 ) -> int:
     """
-    Estimate additional years of monthly observations required at the observed slope,
-    residual variance, and lag-1 autocorrelation to reach 95% two-sided confidence (alpha=0.05).
-    Incorporates the Weatherhead et al. (1998) AR(1) autocorrelation variance inflation:
-    vif = (1 + phi) / (1 - phi).
+    Estimate additional years of monthly observations required at the observed slope
+    and residual variance to reach 95% two-sided confidence (alpha=0.05).
     Returns 0 if already significant, or 99 (capped) for near-zero flat slopes.
     """
     if is_significant:
@@ -298,14 +249,9 @@ def estimate_years_to_significance(
     if n >= max_months:
         return 99
 
-    # Weatherhead et al. (1998) variance inflation for AR(1) red noise
-    phi = float(np.clip(lag1_autocorr, -0.85, 0.85))
-    vif = (1.0 + phi) / max(0.01, 1.0 - phi) if abs(phi) > (1.96 / math.sqrt(n)) else 1.0
-    effective_resid_std = resid_std * math.sqrt(vif)
-
     total_n_arr = np.arange(n + 1, max_months + 1, dtype=float)
     s_xx = (total_n_arr * (total_n_arr ** 2 - 1.0)) / 1728.0
-    t_stats = abs(slope_per_year) * np.sqrt(s_xx) / effective_resid_std
+    t_stats = abs(slope_per_year) * np.sqrt(s_xx) / resid_std
     t_crits = student_t.ppf(0.975, df=total_n_arr - 2.0)
     hits = np.flatnonzero(t_stats >= t_crits)
     if len(hits) > 0:
@@ -393,11 +339,6 @@ def _analyze_single(timestamps: list[str], values: list[float | None], mk_varian
     else:
         outlier_count = 0
 
-    # Non-parametric Pettitt (1979) test for abrupt structural regime shift
-    pettitt_res = pettitt_test(deseasonalized_anomalies)
-    cp_idx = pettitt_res["changepoint_index"]
-    cp_ts = clean_ts[cp_idx] if cp_idx is not None and 0 <= cp_idx < len(clean_ts) else None
-
     # 4. Years-to-significance horizon calculation
     # Use Sen's slope (or OLS slope if Sen's slope is degenerate while OLS is non-zero)
     effective_slope = sen_res["sens_slope_per_year"]
@@ -409,7 +350,6 @@ def _analyze_single(timestamps: list[str], values: list[float | None], mk_varian
         slope_per_year=effective_slope,
         resid_std=resid_std,
         is_significant=mk_res["is_significant"],
-        lag1_autocorr=lag1_acf,
     )
 
     series_dict = {
@@ -441,11 +381,6 @@ def _analyze_single(timestamps: list[str], values: list[float | None], mk_varian
         "ols_intercept": _clean_float(ols_intercept, 4),
         "lag1_autocorrelation": _clean_float(lag1_acf, 4),
         "autocorrelation_significant": bool(autocorr_sig),
-        "changepoint_detected": bool(pettitt_res["is_significant"]),
-        "changepoint_k_stat": _clean_float(pettitt_res["k_stat"], 1),
-        "changepoint_p_value": _clean_float(pettitt_res["p_value"], 6),
-        "changepoint_index": cp_idx,
-        "changepoint_timestamp": cp_ts,
         "outlier_count": int(outlier_count),
         "years_to_significance": years_needed,
         "estimated_additional_observation_years": years_needed,
@@ -462,13 +397,12 @@ def _analyze_single(timestamps: list[str], values: list[float | None], mk_varian
         "duplicate_timestamps_merged": quality["duplicate_timestamps_merged"],
         "ci_methodology": (
             "Shaded band shows the 95% two-sided Student's t confidence interval around the OLS linear fit on STL "
-            "deseasonalized anomalies. Sen's slope 95% CI uses the non-parametric Kendall rank variance approximation (Sen, 1968). "
-            "Structural shifts are assessed using Pettitt's (1979) non-parametric changepoint test."
+            "deseasonalized anomalies (assumes independent, homoscedastic normal residuals). Sen's slope 95% CI uses "
+            "the non-parametric Kendall rank variance approximation (Sen, 1968)."
         ),
         "horizon_assumptions": (
             "Estimated Additional Observation Period is a theoretical statistical power calculation (not a climate forecast): "
-            "it evaluates when the observed trend would achieve two-sided alpha = 0.05 given the observed residual variance and "
-            "accounting for AR(1) autocorrelation variance inflation (Weatherhead et al., 1998; Santer et al., 2000)."
+            "it assumes the observed linear slope, residual variance, and monthly independence persist at two-sided alpha = 0.05."
         ),
     }
 
