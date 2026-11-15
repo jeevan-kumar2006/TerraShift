@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 import pymannkendall as mk
 import pytest
-from scipy.stats import theilslopes
+from scipy.stats import linregress, theilslopes
 from fastapi.testclient import TestClient
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -208,3 +208,213 @@ def test_physical_domain_invariants_across_preset_cases(client):
     c3 = client.get("/api/cases/case_3_igp_thar").json()["response"]
     c3_vals = [v for v in c3["primary_series"]["raw_values"] if v is not None]
     assert min(c3_vals) >= 0.0 and max(c3_vals) <= 1.0, "GWETROOT wetness fraction must be within [0, 1]"
+
+
+# ==============================================================================
+# 12-CASE CONTROLLED MATHEMATICAL TEST BENCH (PART 5)
+# ==============================================================================
+
+def _make_timestamps(n: int, start_year: int = 2000) -> list[str]:
+    """Helper to generate n consecutive monthly timestamps."""
+    dates = pd.date_range(f"{start_year}-01-01", periods=n, freq="MS")
+    return [d.strftime("%Y-%m") for d in dates]
+
+
+def test_mathematical_bench_case_1_perfectly_increasing():
+    """Case 1: Monotonically increasing linear series (Tau=1.0, p < 0.001, exact slope)."""
+    n = 60
+    t = np.arange(n, dtype=float)
+    y = 0.5 * t + 10.0  # slope = 0.5/month = 6.0/year
+    res_mk = mann_kendall_test(y)
+    res_sen = sens_slope(y, step_frequency=12)
+
+    assert abs(res_mk["tau"] - 1.0) < 1e-9
+    assert res_mk["p_value"] < 0.0001
+    assert abs(res_sen["sens_slope_per_month"] - 0.5) < 1e-9
+    assert abs(res_sen["sens_slope_per_year"] - 6.0) < 1e-9
+
+
+def test_mathematical_bench_case_2_perfectly_decreasing():
+    """Case 2: Monotonically decreasing linear series (Tau=-1.0, p < 0.001, exact negative slope)."""
+    n = 60
+    t = np.arange(n, dtype=float)
+    y = -0.25 * t + 50.0  # slope = -0.25/month = -3.0/year
+    res_mk = mann_kendall_test(y)
+    res_sen = sens_slope(y, step_frequency=12)
+
+    assert abs(res_mk["tau"] - (-1.0)) < 1e-9
+    assert res_mk["p_value"] < 0.0001
+    assert abs(res_sen["sens_slope_per_month"] - (-0.25)) < 1e-9
+    assert abs(res_sen["sens_slope_per_year"] - (-3.0)) < 1e-9
+
+
+def test_mathematical_bench_case_3_constant_series():
+    """Case 3: Invariant constant series (Tau=0.0, p=1.0, slope=0.0, no false positive)."""
+    n = 48
+    y = np.full(n, 25.0)
+    res_mk = mann_kendall_test(y)
+    res_sen = sens_slope(y, step_frequency=12)
+
+    assert abs(res_mk["tau"]) < 1e-9
+    assert res_mk["p_value"] == 1.0
+    assert res_mk["is_significant"] is False
+    assert abs(res_sen["sens_slope_per_year"]) < 1e-9
+
+
+def test_mathematical_bench_case_4_noisy_known_trend():
+    """Case 4: Linear trend masked by Gaussian white noise recovers true slope within 95% CI."""
+    rng = np.random.default_rng(42)
+    n = 120
+    t = np.arange(n, dtype=float)
+    true_step_slope = 0.05  # 0.60 per year
+    y = true_step_slope * t + rng.normal(0.0, 0.5, n)
+
+    res_sen = sens_slope(y, step_frequency=12)
+    # 95% CI must bracket true slope of 0.60/year
+    assert res_sen["sens_slope_ci_lower"] <= 0.60 <= res_sen["sens_slope_ci_upper"]
+    assert abs(res_sen["sens_slope_per_year"] - 0.60) < 0.15
+
+
+def test_mathematical_bench_case_5_seasonal_no_trend():
+    """Case 5: Pure harmonic seasonal cycle without long-term trend (STL removes cycle, slope ~ 0)."""
+    n = 72  # 6 years
+    timestamps = _make_timestamps(n)
+    t = np.arange(n, dtype=float)
+    # Seasonal amplitude 10.0, zero trend
+    y = 10.0 * np.sin(2.0 * np.pi * t / 12.0) + 20.0
+
+    analysis = analyze_series(timestamps, y.tolist())
+    primary = analysis["primary_stats"]
+
+    # Seasonality explains > 90% of raw variance
+    assert primary["variance_reduction_pct"] > 90.0
+    # Deseasonalized slope must be negligible
+    assert abs(primary["sens_slope_per_year"]) < 0.01
+    assert primary["is_significant"] is False
+
+
+def test_mathematical_bench_case_6_seasonal_with_known_trend():
+    """Case 6: Strong seasonal cycle superimposed on a linear warming trend."""
+    n = 120  # 10 years
+    timestamps = _make_timestamps(n)
+    t = np.arange(n, dtype=float)
+    # 0.04 C/month = 0.48 C/year warming + strong 8C seasonal swing
+    warming_rate_yr = 0.48
+    y = (warming_rate_yr / 12.0) * t + 8.0 * np.cos(2.0 * np.pi * t / 12.0) + 15.0
+
+    analysis = analyze_series(timestamps, y.tolist())
+    primary = analysis["primary_stats"]
+
+    # Mann-Kendall on deseasonalized anomalies must confirm significance
+    assert primary["is_significant"] is True
+    assert primary["p_value"] < 0.001
+    # Recovered Sen's slope must closely match injected 0.48 C/year
+    assert abs(primary["sens_slope_per_year"] - warming_rate_yr) < 0.05
+
+
+def test_mathematical_bench_case_7_missing_observations_tolerance_and_rejection():
+    """Case 7: Short interior missing gaps (<= 3 months) are linearly interpolated; gaps > 3 rejected."""
+    n = 48
+    timestamps = _make_timestamps(n)
+    y_short_gap = [float(i) for i in range(n)]
+    # Create an interior gap of 2 months (indices 10, 11)
+    y_short_gap[10] = None
+    y_short_gap[11] = None
+
+    analysis = analyze_series(timestamps, y_short_gap)
+    # Must succeed and interpolate smoothly
+    raw_vals = analysis["primary_series"]["raw_values"]
+    assert len(raw_vals) == n
+    assert abs(raw_vals[10] - 10.0) < 1e-4
+    assert abs(raw_vals[11] - 11.0) < 1e-4
+
+    # Create a long interior gap of 4 months (> MAX_INTERPOLATION_GAP_MONTHS)
+    y_long_gap = [float(i) for i in range(n)]
+    for idx in range(12, 16):
+        y_long_gap[idx] = None
+    with pytest.raises(ValueError, match="missing gap of 4 consecutive months"):
+        analyze_series(timestamps, y_long_gap)
+
+
+def test_mathematical_bench_case_8_outliers_sen_breakdown_resistance_vs_ols():
+    """Case 8: Extreme rogue spikes corrupt parametric OLS while Theil-Sen remains stable."""
+    rng = np.random.default_rng(88)
+    n = 60
+    t = np.arange(n, dtype=float)
+    clean_y = 0.05 * t + 5.0  # true step slope = 0.05 -> 0.60/year
+    corrupted_y = clean_y.copy()
+    # Inject 3 severe positive outliers (+100.0) simulating telemetry corruption
+    corrupted_y[10] += 100.0
+    corrupted_y[25] += 120.0
+    corrupted_y[40] += 110.0
+
+    sen_res = sens_slope(corrupted_y, step_frequency=12)
+    # Compute parametric OLS slope for comparison
+    ols_slope, _, _, _, _ = linregress(t / 12.0, corrupted_y)
+
+    # Sen's median slope is robust to the 5% gross contamination (within 0.10 of true 0.60)
+    assert abs(sen_res["sens_slope_per_year"] - 0.60) < 0.10
+    # OLS is drastically distorted (reverses sign to -0.29, error > 0.8)
+    assert abs(ols_slope - 0.60) > 0.80, "OLS must exhibit severe vulnerability to outliers"
+
+
+def test_mathematical_bench_case_9_irregular_timestamps_reindexing():
+    """Case 9: Irregular dates and duplicate entries are re-indexed to regular calendar months."""
+    n = 36
+    # Create irregular day-of-month dates and duplicate month entries
+    raw_dates = []
+    base = pd.to_datetime("2015-01-01")
+    for i in range(n):
+        dt = base + pd.DateOffset(months=i, days=(i % 15))
+        raw_dates.append(dt.strftime("%Y-%m-%d"))
+
+    # Introduce a duplicate month with different values
+    raw_dates.append("2015-06-18")
+    raw_values = [10.0 + 0.1 * i for i in range(n)] + [15.0]
+
+    # Analysis must succeed by aggregating duplicate months and reindexing to regular MS
+    analysis = analyze_series(raw_dates, raw_values)
+    assert len(analysis["primary_series"]["timestamps"]) == n
+    assert analysis["primary_stats"]["observation_months"] == n
+
+
+def test_mathematical_bench_case_10_autocorrelated_red_noise_defense():
+    """Case 10: Autocorrelated red noise AR(1) triggers Hamed-Rao variance modification."""
+    rng = np.random.default_rng(999)
+    n = 120
+    phi = 0.70
+    noise = np.zeros(n)
+    innov = rng.normal(0, 1.0, n)
+    for t in range(1, n):
+        noise[t] = phi * noise[t - 1] + innov[t]
+
+    # Standard MK test on strong red noise without actual trend often over-rejects (false positive)
+    # Hamed-Rao corrects variance to account for positive autocorrelation
+    mk_std = mann_kendall_test(noise, variant="standard")
+    mk_hr = mann_kendall_test(noise, variant="hamed_rao")
+
+    # Corrected Z-score must be attenuated relative to uncorrected
+    assert abs(mk_hr["z_score"]) < abs(mk_std["z_score"])
+    assert mk_hr["p_value"] >= mk_std["p_value"]
+
+
+def test_mathematical_bench_case_11_short_observation_period_rejection():
+    """Case 11: Series shorter than minimum 24-month horizon is strictly rejected."""
+    n = 18
+    timestamps = _make_timestamps(n)
+    values = [20.0 + 0.1 * i for i in range(n)]
+
+    with pytest.raises(ValueError, match="At least 24 monthly observations are required"):
+        analyze_series(timestamps, values)
+
+
+def test_mathematical_bench_case_12_insufficient_valid_observations_rejection():
+    """Case 12: Series with total span >= 24 but fewer than 24 valid observations is rejected."""
+    n = 30
+    timestamps = _make_timestamps(n)
+    # 20 valid points, 10 missing points scattered (valid < 24)
+    values = [float(i) if i % 3 != 0 else None for i in range(n)]
+
+    with pytest.raises(ValueError):
+        analyze_series(timestamps, values)
+
