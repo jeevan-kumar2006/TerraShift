@@ -31,6 +31,7 @@ import StatsDashboard from "./StatsDashboard";
 import { AboutView, HelpGuideView } from "./AboutAndHelp";
 import DataAcquisitionView from "./DataAcquisitionView";
 import IndiaRegionalView from "./IndiaRegionalView";
+import { API_BASE_URL } from "./config";
 import type {
   GeoPoint,
   InvestigateResponse,
@@ -106,8 +107,6 @@ function buildSampleKnmiDat(): string {
   return rows.join("\n");
 }
 
-const API_BASE = ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
-
 function parseApiErrorMessage(errJson: unknown, defaultMessage: string): string {
   if (!errJson || typeof errJson !== "object") return defaultMessage;
   const payload = errJson as { detail?: unknown; message?: unknown };
@@ -174,7 +173,7 @@ export default function App() {
           start_year: String(sYr),
           end_year: String(eYr),
         });
-        const resp = await fetch(`${API_BASE}/api/partner-intel?${qs.toString()}`);
+        const resp = await fetch(`${API_BASE_URL}/api/partner-intel?${qs.toString()}`);
         if (resp.ok) {
           const data: PartnerIntelResponse = await resp.json();
           setPartnerIntel(data);
@@ -215,7 +214,7 @@ export default function App() {
       setError(null);
 
       try {
-        const resp = await fetch(`${API_BASE}/api/investigate`, {
+        const resp = await fetch(`${API_BASE_URL}/api/investigate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: controller.signal,
@@ -250,8 +249,8 @@ export default function App() {
   const loadInitialCases = useCallback(async () => {
     try {
       const [healthResp, casesResp] = await Promise.allSettled([
-        fetch(`${API_BASE}/api/health`),
-        fetch(`${API_BASE}/api/cases`),
+        fetch(`${API_BASE_URL}/api/health`),
+        fetch(`${API_BASE_URL}/api/cases`),
       ]);
       if (healthResp.status === "fulfilled" && healthResp.value.ok) {
         setApiOnline(true);
@@ -403,7 +402,7 @@ export default function App() {
     setError(null);
     try {
       const win = customWindow ?? windowRange;
-      const resp = await fetch(`${API_BASE}/api/import-series`, {
+      const resp = await fetch(`${API_BASE_URL}/api/import-series`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -430,7 +429,7 @@ export default function App() {
       setWindowRange([data.request.start_year, data.request.end_year]);
       setResult(data);
       setShowImportModal(false);
-      setActiveSection("analysis");
+      handleNavigate("analysis");
     } catch (err) {
       setError((err as Error).message || "Failed to parse uploaded time series.");
     } finally {
@@ -438,13 +437,124 @@ export default function App() {
     }
   };
 
-  const [activeSection, setActiveSection] = useState<NavSection>("home");
+  const VALID_SECTIONS: NavSection[] = [
+    "home",
+    "explore",
+    "india",
+    "acquisition",
+    "analysis",
+    "results",
+    "about",
+    "help",
+  ];
+
+  const parseSectionFromHash = (hash: string): NavSection | null => {
+    const clean = hash.replace(/^#\/?/, "").toLowerCase().trim();
+    if (VALID_SECTIONS.includes(clean as NavSection)) {
+      return clean as NavSection;
+    }
+    return null;
+  };
+
+  const [activeSection, setActiveSection] = useState<NavSection>(() => {
+    if (typeof window !== "undefined") {
+      return parseSectionFromHash(window.location.hash) || "home";
+    }
+    return "home";
+  });
   const [mobileNavOpen, setMobileNavOpen] = useState<boolean>(false);
 
-  const handleNavigate = (section: NavSection) => {
+  const dossierOpenRef = useRef(dossierOpen);
+  dossierOpenRef.current = dossierOpen;
+
+  const importModalOpenRef = useRef(showImportModal);
+  importModalOpenRef.current = showImportModal;
+
+  const activeSectionRef = useRef(activeSection);
+  activeSectionRef.current = activeSection;
+
+  useEffect(() => {
+    const initialSection = parseSectionFromHash(window.location.hash) || "home";
+    window.history.replaceState({ section: initialSection, modal: null }, "", `#${initialSection}`);
+
+    const handlePopState = (e: PopStateEvent) => {
+      const state = e.state;
+
+      // Handle modal state transitions when popping history
+      if (dossierOpenRef.current && state?.modal !== "dossier") {
+        setDossierOpen(false);
+        return;
+      }
+      if (importModalOpenRef.current && state?.modal !== "import") {
+        setShowImportModal(false);
+        return;
+      }
+
+      if (state?.modal === "dossier") {
+        setDossierOpen(true);
+        setShowImportModal(false);
+      } else if (state?.modal === "import") {
+        setShowImportModal(true);
+        setDossierOpen(false);
+      }
+
+      const targetSection =
+        (state?.section as NavSection) || parseSectionFromHash(window.location.hash) || "home";
+      setActiveSection(targetSection);
+      setMobileNavOpen(false);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, []);
+
+  const handleNavigate = (section: NavSection, replace = false) => {
+    if (section === activeSectionRef.current && !dossierOpenRef.current && !importModalOpenRef.current) {
+      setMobileNavOpen(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    if (dossierOpenRef.current) setDossierOpen(false);
+    if (importModalOpenRef.current) setShowImportModal(false);
+
+    if (replace) {
+      window.history.replaceState({ section, modal: null }, "", `#${section}`);
+    } else {
+      window.history.pushState({ section, modal: null }, "", `#${section}`);
+    }
     setActiveSection(section);
     setMobileNavOpen(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleOpenDossier = () => {
+    window.history.pushState({ section: activeSectionRef.current, modal: "dossier" }, "", window.location.hash);
+    setDossierOpen(true);
+  };
+
+  const handleCloseDossier = () => {
+    setDossierOpen(false);
+    if (window.history.state?.modal === "dossier") {
+      window.history.back();
+    }
+  };
+
+  const handleOpenImportModal = () => {
+    if (!importText) {
+      setImportText(buildSampleGiovanniCsv());
+    }
+    window.history.pushState({ section: activeSectionRef.current, modal: "import" }, "", window.location.hash);
+    setShowImportModal(true);
+  };
+
+  const handleCloseImportModal = () => {
+    setShowImportModal(false);
+    if (window.history.state?.modal === "import") {
+      window.history.back();
+    }
   };
 
   const handleSelectCaseAndExplore = (selectedCaseId: string, targetSection: NavSection) => {
@@ -545,7 +655,7 @@ export default function App() {
             <button
               type="button"
               disabled={!result}
-              onClick={() => setDossierOpen(true)}
+              onClick={handleOpenDossier}
               className="dossier-button inline-flex items-center gap-1.5 disabled:opacity-40"
             >
               <FileText className="h-3.5 w-3.5" />
@@ -663,12 +773,7 @@ export default function App() {
 
                   <button
                     type="button"
-                    onClick={() => {
-                      if (!importText) {
-                        setImportText(buildSampleGiovanniCsv());
-                      }
-                      setShowImportModal(true);
-                    }}
+                    onClick={handleOpenImportModal}
                     className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-500/40 bg-indigo-500/15 px-3 py-2 text-xs font-semibold text-indigo-200 transition hover:bg-indigo-500/25"
                   >
                     <Upload className="h-3.5 w-3.5" />
@@ -1017,7 +1122,7 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={() => setDossierOpen(true)}
+                onClick={handleOpenDossier}
                 className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition"
               >
                 <FileText className="h-3.5 w-3.5" />
@@ -1116,7 +1221,7 @@ export default function App() {
                 setMkVariant(variant);
                 runInvestigation({ nextMk: variant });
               }}
-              onOpenDossier={() => setDossierOpen(true)}
+              onOpenDossier={handleOpenDossier}
               onGoToCharts={() => handleNavigate("analysis")}
             />
           ) : (
@@ -1157,7 +1262,7 @@ export default function App() {
           )
         )}
 
-        {activeSection === "acquisition" && <DataAcquisitionView apiBase={API_BASE} />}
+        {activeSection === "acquisition" && <DataAcquisitionView apiBase={API_BASE_URL} />}
 
         {activeSection === "india" && (
           <IndiaRegionalView
@@ -1202,7 +1307,7 @@ export default function App() {
             </div>
             <button
               type="button"
-              onClick={() => setDossierOpen(true)}
+              onClick={handleOpenDossier}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3.5 py-2 text-xs font-semibold text-cyan-200 transition hover:bg-cyan-500/20"
             >
               <FileText className="h-3.5 w-3.5" />
@@ -1226,7 +1331,7 @@ export default function App() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setShowImportModal(false)}
+                  onClick={handleCloseImportModal}
                   className="rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-white"
                 >
                   ✕
@@ -1325,7 +1430,7 @@ export default function App() {
               <div className="mt-3 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowImportModal(false)}
+                  onClick={handleCloseImportModal}
                   className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-300 hover:bg-slate-800"
                 >
                   Cancel
@@ -1348,7 +1453,7 @@ export default function App() {
             pointA={pointA}
             pointB={pointB}
             windowRange={windowRange}
-            onClose={() => setDossierOpen(false)}
+            onClose={handleCloseDossier}
           />
         )}
       </div>

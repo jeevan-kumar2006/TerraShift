@@ -12,8 +12,7 @@ import {
 } from "recharts";
 import { AlertCircle, Download, Loader2, Printer, Sparkles, X } from "lucide-react";
 import type { DetectiveBrief, GeoPoint, InvestigateResponse } from "./types";
-
-const API_BASE = ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+import { API_BASE_URL } from "./config";
 
 interface DossierModalProps {
   investigation: InvestigateResponse;
@@ -74,7 +73,7 @@ export default function DossierModal({
     setExplaining(true);
     setExplainError(null);
     try {
-      const resp = await fetch(`${API_BASE}/api/explain`, {
+      const resp = await fetch(`${API_BASE_URL}/api/explain`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -74,3 +74,33 @@ cd frontend
 npm install
 npm run dev
 ```
+
+---
+
+## 5. Production Deployment
+
+TerraShift deploys as two services:
+
+- **Backend:** Render web service from `render.yaml`, rooted at `backend/`.
+- **Frontend:** Vercel project from the repository root, using `vercel.json` to build `frontend/` and serve `frontend/dist`.
+
+### Render backend
+
+Create a Render Blueprint from this repository and set:
+
+- `CORS_ORIGINS`: the deployed Vercel origin, for example `https://terrashift.example.vercel.app`
+- `GEMINI_API_KEY`: optional; deterministic explanations remain available without it
+- `NOAA_CDO_TOKEN`: optional; only needed for NOAA station queries
+
+Render supplies `PORT`. The service starts with Uvicorn and uses `/api/health` for health checks. Do not commit any of these values or a `backend/.env` file.
+
+### Vercel frontend
+
+Set these Vercel environment variables for the Production environment:
+
+- `VITE_API_BASE_URL`: the public Render backend URL, without a trailing slash
+- `VITE_MAPBOX_TOKEN`: optional public Mapbox browser token beginning with `pk.`
+
+The Vercel build runs `npm run build --prefix frontend` and publishes `frontend/dist`. Vite embeds `VITE_*` values into browser assets, so never place private credentials in them. If `VITE_API_BASE_URL` is empty, the frontend uses same-origin `/api` paths, which is useful for local development through the Vite proxy.
+
+After both services deploy, verify the Render `/api/health` endpoint, open the Vercel URL, and run a representative investigation and explanation request. Confirm that the Render `CORS_ORIGINS` value exactly matches the Vercel origin.
